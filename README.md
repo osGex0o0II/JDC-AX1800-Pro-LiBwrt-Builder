@@ -30,6 +30,8 @@
 
 `core-daed.config` 是在 `core.config` 上叠加的实验配置，`ultimate.config` 是在 `core.config` 上叠加的全功能配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
 
+上游 LiBwrt `main-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。
+
 ## 使用 GitHub Actions 编译
 
 1. Fork 本仓库。
