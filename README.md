@@ -1,6 +1,6 @@
 # ExcaliburOS
 
-为 **JDC AX1800 Pro / 京东云无线宝后羿** 编译的 LiBwrt NSS 固件，基于 [LiBwrt/openwrt-6.x](https://github.com/LiBwrt/openwrt-6.x) `main-nss` 分支。
+为 **JDC AX1800 Pro / 京东云无线宝亚瑟** 编译的 LiBwrt NSS 固件，基于 [LiBwrt/openwrt-6.x](https://github.com/LiBwrt/openwrt-6.x) `main-nss` 分支。
 
 [![Build](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/actions/workflows/build.yml/badge.svg)](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/actions/workflows/build.yml)
 [![License](https://img.shields.io/github/license/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder)](LICENSE)

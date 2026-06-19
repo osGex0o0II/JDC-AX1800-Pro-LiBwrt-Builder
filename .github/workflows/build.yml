@@ -55,8 +55,18 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo bash -c 'bash <(curl -fsSL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
-          sudo -E apt -yqq install clang llvm npm dos2unix libfuse-dev
-          sudo npm install -g pnpm
+          sudo -E apt -yqq install clang llvm dos2unix libfuse-dev
+          for tool in clang llc llvm-dis opt llvm-strip; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              candidate="$(ls /usr/bin/${tool}-* 2>/dev/null | sort -V | tail -n 1 || true)"
+              if [ -n "$candidate" ]; then
+                sudo ln -sf "$candidate" "/usr/local/bin/$tool"
+              fi
+            fi
+            command -v "$tool"
+          done
+          clang --version | head -n 1
+          llc --version | head -n 1
           sudo -E apt -yqq autoremove --purge
           sudo -E apt -yqq clean
           sudo timedatectl set-timezone "$TZ"
@@ -192,8 +202,17 @@ jobs:
             core-daed)
               grep -q '^CONFIG_PACKAGE_luci-app-daed=y$' .config
               grep -q '^CONFIG_PACKAGE_daed=y$' .config
+              grep -q '^CONFIG_DAED_USE_KERNEL_BTF=y$' .config
+              grep -q '^CONFIG_BPF_TOOLCHAIN_HOST=y$' .config
+              grep -q '^CONFIG_KERNEL_CGROUP_BPF=y$' .config
+              grep -q '^CONFIG_KERNEL_BPF_EVENTS=y$' .config
               grep -q '^CONFIG_KERNEL_DEBUG_INFO_BTF=y$' .config
               grep -q '^CONFIG_KERNEL_XDP_SOCKETS=y$' .config
+              grep -q '^CONFIG_PACKAGE_kmod-sched-bpf=y$' .config
+              grep -q '^CONFIG_PACKAGE_kmod-veth=y$' .config
+              grep -q '^CONFIG_PACKAGE_kmod-xdp-sockets-diag=y$' .config
+              grep -q '^CONFIG_PACKAGE_v2ray-geoip=y$' .config
+              grep -q '^CONFIG_PACKAGE_v2ray-geosite=y$' .config
               ! grep -q '^CONFIG_PACKAGE_luci-app-homeproxy=y$' .config
               ! grep -q '^CONFIG_PACKAGE_sing-box=y$' .config
               ! grep -q '^CONFIG_PACKAGE_dockerd=y$' .config
