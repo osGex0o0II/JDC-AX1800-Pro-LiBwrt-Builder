@@ -1,0 +1,281 @@
+name: Build ExcaliburOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Firmware version
+        required: true
+        type: choice
+        options:
+          - core
+          - home
+          - ultimate
+      repo_commit:
+        description: Lock upstream commit (leave empty for latest)
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.version || 'core' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REPO_URL: https://github.com/LiBwrt/openwrt-6.x.git
+  REPO_BRANCH: main-nss
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    name: ExcaliburOS ${{ inputs.version || 'core' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      status: ${{ steps.compile.outputs.status }}
+      file_date: ${{ steps.compile.outputs.FILE_DATE }}
+      version_kernel: ${{ steps.detect_target.outputs.VERSION_KERNEL }}
+      source_commit: ${{ steps.clone_source.outputs.SOURCE_COMMIT }}
+      version: ${{ steps.version.outputs.VERSION }}
+      changelog: ${{ steps.changelog.outputs.CHANGELOG }}
+      firmware_release: true
+
+    steps:
+      - name: Check server
+        run: |
+          echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
+          echo "Cores: $(nproc)"
+          free -h
+          df -hT
+
+      - name: Initialize environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo bash -c 'bash <(curl -fsSL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          sudo -E apt -yqq install dos2unix libfuse-dev
+          sudo -E apt -yqq autoremove --purge
+          sudo -E apt -yqq clean
+          sudo timedatectl set-timezone "$TZ"
+
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@v10
+        with:
+          swap-size-mb: 1024
+          root-reserve-mb: 1024
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Clone source
+        id: clone_source
+        run: |
+          git clone --depth=1 -b "$REPO_BRANCH" "$REPO_URL" openwrt
+          if [ -n "${{ inputs.repo_commit }}" ]; then
+            cd openwrt
+            git fetch --depth=1 origin "${{ inputs.repo_commit }}"
+            git -c advice.detachedHead=false checkout FETCH_HEAD
+            cd "$OLDPWD"
+          fi
+          cd openwrt
+          echo "OPENWRT_PATH=$PWD" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SOURCE_COMMIT=$(git rev-parse --short HEAD)" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          {
+            echo "VERSION_INFO<<EOF"
+            git show -s --date=short --format='Author: %an%nDate: %cd%nSubject: %s%nHash: %H'
+            echo "EOF"
+          } | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+
+      - name: Generate version
+        id: version
+        run: |
+          chmod +x scripts/version.sh
+          bash scripts/version.sh
+
+      - name: Load config and detect target
+        id: detect_target
+        run: |
+          case "${{ inputs.version }}" in
+            core)
+              cp configs/core.config openwrt/.config
+              ;;
+            home)
+              cat configs/core.config configs/home.config > openwrt/.config
+              ;;
+            ultimate)
+              cat configs/core.config configs/home.config configs/ultimate.config > openwrt/.config
+              ;;
+          esac
+          cd openwrt
+          make defconfig
+          grep -q '^CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y$' .config \
+            && echo "Target device verified: jdcloud_re-ss-01"
+          source_repo="${REPO_URL##*/}"
+          {
+            echo "SOURCE_REPO=${source_repo%.git}"
+            echo "DEVICE_TARGET=$(awk -F'"' '/CONFIG_TARGET_BOARD/{print $2}' .config)"
+            echo "DEVICE_SUBTARGET=$(awk -F'"' '/CONFIG_TARGET_SUBTARGET/{print $2}' .config)"
+            kernel_version="$(grep -E '^KERNEL_PATCHVER:=' target/linux/qualcommax/Makefile 2>/dev/null | sed 's/.*:=//;s/^[[:space:]]*//')"
+            echo "VERSION_KERNEL=${kernel_version:-6.12}"
+          } | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+
+      - name: Cache dl
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.clone_source.outputs.OPENWRT_PATH }}/dl
+          key: openwrt-dl-excaliburos-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}
+
+      - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.clone_source.outputs.OPENWRT_PATH }}/.ccache
+          key: openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-${{ hashFiles('configs/*.config', 'scripts/diy.sh', 'scripts/version.sh', 'files/**') }}
+          restore-keys: |
+            openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-
+            openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-
+
+      - name: Install feeds
+        run: |
+          cd "$OPENWRT_PATH"
+          chmod +x $GITHUB_WORKSPACE/scripts/update-feeds.sh
+          $GITHUB_WORKSPACE/scripts/update-feeds.sh
+
+      - name: Apply custom files and scripts
+        run: |
+          mkdir -p "$OPENWRT_PATH/files"
+          [ -d files ] && cp -a files/. "$OPENWRT_PATH/files/"
+          dos2unix scripts/diy.sh
+          chmod +x scripts/diy.sh
+          cd "$OPENWRT_PATH"
+          "$GITHUB_WORKSPACE/scripts/diy.sh" "${{ inputs.version }}"
+
+      - name: Download packages
+        run: |
+          cd "$OPENWRT_PATH"
+          make defconfig
+          make download -j"$(nproc)"
+          find dl -maxdepth 1 -type f -size -1024c -print -delete
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          cd "$OPENWRT_PATH"
+          {
+            echo "CHANGELOG<<EOF"
+            echo "### 上游变更 (LiBwrt main-nss)"
+            echo ""
+            git log --oneline -10
+            echo ""
+            echo "---"
+            echo "构建版本: $VERSION"
+            echo "目标设备: ${{ steps.detect_target.outputs.DEVICE_TARGET }}/${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}"
+            echo "内核版本: ${{ steps.detect_target.outputs.VERSION_KERNEL }}"
+            echo "EOF"
+          } | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+
+      - name: Compile firmware
+        id: compile
+        run: |
+          cd "$OPENWRT_PATH"
+          ccache -M 2G || true
+          ccache -z || true
+          if make -j"$(nproc)"; then
+            echo "Parallel build succeeded"
+          elif make -j1 V=s; then
+            echo "Single-threaded retry succeeded"
+          else
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          ccache -s || true
+          echo "status=success" >> "$GITHUB_OUTPUT"
+          echo "FILE_DATE=$(date '+%Y.%m.%d')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "DATE=$(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+
+      - name: Organize firmware
+        id: organize
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          cd "$OPENWRT_PATH/bin/targets"/*/*
+          ls -lh
+          test -f ./*jdcloud_re-ss-01*squashfs-factory*
+          test -f ./*jdcloud_re-ss-01*squashfs-sysupgrade*
+          cat sha256sums
+          VARIANT_UPPER=$(echo "${{ inputs.version }}" | tr '[:lower:]' '[:upper:]')
+          for f in *jdcloud_re-ss-01*squashfs-factory*; do
+            [ -f "$f" ] && mv "$f" "ExcaliburOS-${FILE_DATE}-${VARIANT_UPPER}-factory.ubi"
+          done
+          for f in *jdcloud_re-ss-01*squashfs-sysupgrade*; do
+            [ -f "$f" ] && mv "$f" "ExcaliburOS-${FILE_DATE}-${VARIANT_UPPER}-sysupgrade.bin"
+          done
+          sha256sum ExcaliburOS-${FILE_DATE}-* > sha256sums
+          {
+            echo "Builder repository: ${GITHUB_REPOSITORY}"
+            echo "Builder commit: ${GITHUB_SHA}"
+            echo "Workflow: ${GITHUB_WORKFLOW}"
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "Build date: ${DATE}"
+            echo "Build version: ${VERSION}"
+            echo "Source repository: ${REPO_URL}"
+            echo "Source branch: ${REPO_BRANCH}"
+            echo "Source commit: ${SOURCE_COMMIT}"
+            echo "Kernel: ${VERSION_KERNEL}"
+            echo "Variant: ${{ inputs.version }}"
+            echo "Config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/core.config" | awk '{print $1}')"
+            echo
+            echo "Firmware SHA256:"
+            cat sha256sums
+          } > BUILD-MANIFEST.txt
+          {
+            echo "**ExcaliburOS ${{ inputs.version }} — JDC AX1800 Pro**"
+            echo
+            echo "- Source: ${REPO_URL} (${REPO_BRANCH})"
+            echo "- Kernel: ${VERSION_KERNEL}"
+            echo "- Build: ${FILE_DATE}"
+            echo "- Source revision:"
+            echo
+            echo '```'
+            printf '%s\n' "${VERSION_INFO}"
+            echo '```'
+            echo
+            echo "Build manifest and OpenWrt buildinfo files are attached for traceability."
+          } > RELEASE.md
+          rm -f feeds.buildinfo version.buildinfo
+          echo "FIRMWARE_PATH=$PWD" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+
+      - name: Upload firmware artifact
+        if: steps.compile.outputs.status == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ inputs.version }}
+          path: ${{ steps.organize.outputs.FIRMWARE_PATH }}/*
+
+  release:
+    name: Publish ExcaliburOS ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    needs: build
+    if: needs.build.outputs.status == 'success'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download firmware artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-${{ inputs.version }}
+          path: firmware
+
+      - name: Publish release
+        uses: ncipollo/release-action@v1.21.0
+        with:
+          name: ExcaliburOS ${{ inputs.version }} v${{ needs.build.outputs.file_date }}
+          tag: v${{ needs.build.outputs.file_date }}-${{ inputs.version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: firmware/*.ubi,firmware/*.bin,firmware/*.txt,firmware/sha256sums,firmware/*.buildinfo
+          bodyFile: firmware/RELEASE.md
+          commit: ${{ github.sha }}
+          artifactErrorsFailBuild: true
+          allowUpdates: true
+          replacesArtifacts: true

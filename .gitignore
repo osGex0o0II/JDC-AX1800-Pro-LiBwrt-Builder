@@ -1,0 +1,30 @@
+# OpenWrt build output
+openwrt/
+bin/
+build_dir/
+dl/
+feeds/
+logs/
+staging_dir/
+tmp/
+.config*
+.config.old
+
+# OS files
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Editor/IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Environment
+.env
+*.local
+
+# Logs
+*.log
