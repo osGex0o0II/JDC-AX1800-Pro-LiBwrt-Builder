@@ -138,7 +138,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ steps.clone_source.outputs.OPENWRT_PATH }}/dl
-          key: openwrt-dl-excaliburos-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}
+          key: openwrt-dl-jdc-ax1800-pro-libwrt-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}
 
       - name: Cache ccache
         uses: actions/cache@v5
