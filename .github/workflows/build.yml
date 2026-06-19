@@ -221,7 +221,6 @@ jobs:
             core-daed)
               require_config CONFIG_PACKAGE_luci-app-daed
               require_config CONFIG_PACKAGE_daed
-              require_config CONFIG_DAED_USE_KERNEL_BTF
               require_config CONFIG_BPF_TOOLCHAIN_HOST
               require_config CONFIG_KERNEL_CGROUP_BPF
               require_config CONFIG_KERNEL_BPF_EVENTS
@@ -232,6 +231,7 @@ jobs:
               require_config CONFIG_PACKAGE_kmod-xdp-sockets-diag
               require_config CONFIG_PACKAGE_v2ray-geoip
               require_config CONFIG_PACKAGE_v2ray-geosite
+              forbid_config CONFIG_DAED_USE_VMLINUX_BTF
               forbid_config CONFIG_PACKAGE_luci-app-homeproxy
               forbid_config CONFIG_PACKAGE_sing-box
               forbid_config CONFIG_PACKAGE_dockerd
