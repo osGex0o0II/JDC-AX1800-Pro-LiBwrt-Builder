@@ -73,6 +73,17 @@ check_proxy() {
   fi
 }
 
+check_daed() {
+  if [ ! -x /etc/init.d/daed ] || ! /etc/init.d/daed enabled >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! pidof daed >/dev/null 2>&1; then
+    log "daed is enabled but not running"
+    restart_service daed
+  fi
+}
+
 check_docker() {
   if [ ! -x /etc/init.d/dockerd ] || ! /etc/init.d/dockerd enabled >/dev/null 2>&1; then
     return 0
@@ -89,6 +100,7 @@ check_memory
 if has_default_route; then
   check_dns
   check_proxy
+  check_daed
   check_docker
 else
   log "no default route"

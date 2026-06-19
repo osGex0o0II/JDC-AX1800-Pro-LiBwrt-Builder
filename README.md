@@ -14,27 +14,28 @@
 - 有线主路由取向，默认移除 ath11k Wi-Fi 相关包
 - BBR + fq，内建 `sch_fq`，避免启动早期 sysctl 失败
 - Aurora LuCI 主题，固定上游 commit
-- HomeProxy/sing-box 可选，固定 HomeProxy commit 并校验 Makefile SHA256
+- 默认包含 HomeProxy/sing-box，固定 HomeProxy commit 并校验 Makefile SHA256
+- 提供 `core-daed` 实验变体，用于评估 daed/eBPF 透明代理
 - GitHub Actions 自动编译、上传 artifact、发布 Release
 - Release 附带 manifest、固件 SHA256、上游源码信息和最终配置摘要
-- 默认关闭 `ttyd`，默认关闭 flow offloading，避免与 NSS 路径冲突
+- 默认关闭 `ttyd`、packet steering 和 flow offloading，避免与 NSS 路径冲突
 
 ## 固件变体
 
 | 变体 | 定位 | 主要内容 |
 |:---|:---|:---|
-| `core` | 基础主路由 | LuCI、防火墙、IPv6、UPnP、Tailscale、Samba、SQM、统计、USB 存储、CoreMark |
-| `home` | 家用代理网关 | 在 `core` 基础上增加 HomeProxy、sing-box、TProxy、WireGuard、iperf3 |
-| `ultimate` | 全功能实验版 | 在 `home` 基础上增加 Docker、Dockerman、Aria2、DiskMan、更多文件系统支持 |
+| `core` | 日用主路由 | NSS、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、统计、USB 存储、CoreMark |
+| `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 daed/luci-app-daed，并启用 BPF/BTF/XDP 相关配置 |
+| `ultimate` | 全功能版 | 在 `core` 基础上增加 Docker、Dockerman、Aria2、DiskMan、更多文件系统支持 |
 
-`home.config` 是在 `core.config` 上叠加的增量配置，`ultimate.config` 是在 `core.config + home.config` 上继续叠加的增量配置。
+`core-daed.config` 是在 `core.config` 上叠加的实验配置，`ultimate.config` 是在 `core.config` 上叠加的全功能配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
 
 ## 使用 GitHub Actions 编译
 
 1. Fork 本仓库。
 2. 进入 **Actions**，启用 workflow。
 3. 打开 **Build ExcaliburOS**。
-4. 点击 **Run workflow**，选择 `core`、`home` 或 `ultimate`。
+4. 点击 **Run workflow**，选择 `core`、`core-daed` 或 `ultimate`。
 5. 可选：在 `repo_commit` 填入 LiBwrt 上游 commit hash，用于固定源码版本。
 6. 编译完成后从 workflow artifact 或 Releases 下载固件。
 
@@ -49,11 +50,11 @@ cd openwrt
 # core
 cp ../configs/core.config .config
 
-# home
-# cat ../configs/core.config ../configs/home.config > .config
+# core-daed
+# cat ../configs/core.config ../configs/core-daed.config > .config
 
 # ultimate
-# cat ../configs/core.config ../configs/home.config ../configs/ultimate.config > .config
+# cat ../configs/core.config ../configs/ultimate.config > .config
 
 ./scripts/feeds update -a
 ./scripts/feeds install -a
@@ -61,10 +62,13 @@ cp ../configs/core.config .config
 mkdir -p files
 cp -a ../files/. files/
 
-# home 需要额外复制
-# cp -a ../files-home/. files/
+# core/ultimate 复制 HomeProxy 默认项
+cp -a ../files-homeproxy/. files/
 
-# ultimate 需要额外复制
+# core-daed 需要额外复制 daed 默认项
+# cp -a ../files-daed/. files/
+
+# ultimate 需要额外复制 Docker/存储默认项
 # cp -a ../files-ultimate/. files/
 
 OPENWRT_PATH="$PWD" bash ../scripts/diy.sh core
@@ -73,7 +77,7 @@ make download -j"$(nproc)"
 make -j"$(nproc)"
 ```
 
-本地编译 `home` 或 `ultimate` 时，请把 `diy.sh` 的最后一个参数改成对应变体。
+本地编译 `core-daed` 或 `ultimate` 时，请把配置叠加、overlay 复制和 `diy.sh` 的最后一个参数改成对应变体。
 
 ## 默认配置
 
@@ -85,7 +89,7 @@ make -j"$(nproc)"
 | LuCI 语言 | 简体中文 |
 | 默认主题 | Aurora |
 | TTYD | 已安装，默认关闭 |
-| flow offloading | 默认关闭 |
+| flow offloading / packet steering | 默认关闭 |
 
 ## 刷机与升级
 
@@ -106,7 +110,7 @@ sysupgrade -n /tmp/ExcaliburOS-*-sysupgrade.bin
 
 ### NSS 与 flow offloading
 
-本固件默认使用 NSS 作为主要加速路径，并在首次启动时关闭软件 flow offloading 和硬件 flow offloading。NSS 与 OpenWrt 的 flow offloading 可能竞争数据包处理路径，混用可能导致吞吐下降或连接异常。
+本固件默认使用 NSS 作为主要加速路径，并在首次启动时关闭软件 flow offloading、硬件 flow offloading 和 packet steering。NSS 与 OpenWrt 的 flow offloading/packet steering 可能竞争数据包处理路径，混用可能导致吞吐下降或连接异常。
 
 ### BBR + fq
 
@@ -126,10 +130,11 @@ net.ipv4.tcp_congestion_control=bbr
 - 默认路由
 - 本地 dnsmasq 解析
 - HomeProxy/sing-box 状态
+- daed 状态
 - Docker 状态
 - 可用内存
 
-`home` 和 `ultimate` 变体会通过 cron 定期运行健康检查。脚本只做服务级恢复和日志记录，不会自动重启整机。
+`core`、`core-daed` 和 `ultimate` 变体会通过 cron 定期运行健康检查。脚本只做服务级恢复和日志记录，不会自动重启整机。
 
 ## 项目结构
 
@@ -140,10 +145,11 @@ net.ipv4.tcp_congestion_control=bbr
 │   └── cleanup.yml        # 清理旧 workflow runs 和 releases
 ├── configs/
 │   ├── core.config        # 基础配置
-│   ├── home.config        # home 增量配置
+│   ├── core-daed.config   # daed/eBPF 实验配置
 │   └── ultimate.config    # ultimate 增量配置
 ├── files/                 # 所有变体共用 overlay
-├── files-home/            # home 专属 overlay
+├── files-homeproxy/       # HomeProxy/sing-box 默认项
+├── files-daed/            # daed 默认项
 ├── files-ultimate/        # ultimate 专属 overlay
 ├── scripts/
 │   ├── diy.sh             # 编译前自定义
@@ -158,8 +164,9 @@ net.ipv4.tcp_congestion_control=bbr
 ## 自定义建议
 
 - 修改包选择时优先编辑 `configs/*.config`，不要直接改 Actions 里的包列表。
-- 增加运行时文件时优先放到对应 overlay：通用放 `files/`，代理网关放 `files-home/`，Docker/存储相关放 `files-ultimate/`。
+- 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，daed 放 `files-daed/`，Docker/存储相关放 `files-ultimate/`。
 - 更新 HomeProxy commit 时，同步更新 `HOMEPROXY_MAKEFILE_SHA256`。
+- 更新 daed 时，同步更新 `DAED_COMMIT`，并优先在 `core-daed` 变体验证。
 - 更新第三方 GitHub Actions 时，建议继续固定到具体 commit SHA。
 
 ## 致谢

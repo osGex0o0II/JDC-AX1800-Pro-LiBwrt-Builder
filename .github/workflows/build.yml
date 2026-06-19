@@ -9,7 +9,7 @@ on:
         type: choice
         options:
           - core
-          - home
+          - core-daed
           - ultimate
       repo_commit:
         description: Lock upstream commit (leave empty for latest)
@@ -55,7 +55,8 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo bash -c 'bash <(curl -fsSL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
-          sudo -E apt -yqq install dos2unix libfuse-dev
+          sudo -E apt -yqq install clang llvm npm dos2unix libfuse-dev
+          sudo npm install -g pnpm
           sudo -E apt -yqq autoremove --purge
           sudo -E apt -yqq clean
           sudo timedatectl set-timezone "$TZ"
@@ -101,11 +102,11 @@ jobs:
             core)
               cp configs/core.config openwrt/.config
               ;;
-            home)
-              cat configs/core.config configs/home.config > openwrt/.config
+            core-daed)
+              cat configs/core.config configs/core-daed.config > openwrt/.config
               ;;
             ultimate)
-              cat configs/core.config configs/home.config configs/ultimate.config > openwrt/.config
+              cat configs/core.config configs/ultimate.config > openwrt/.config
               ;;
           esac
           cd openwrt
@@ -131,7 +132,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ steps.clone_source.outputs.OPENWRT_PATH }}/.ccache
-          key: openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-${{ hashFiles('configs/*.config', 'scripts/diy.sh', 'scripts/version.sh', 'files/**', 'files-home/**', 'files-ultimate/**') }}
+          key: openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-${{ hashFiles('configs/*.config', 'scripts/diy.sh', 'scripts/version.sh', 'files/**', 'files-homeproxy/**', 'files-daed/**', 'files-ultimate/**') }}
           restore-keys: |
             openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-
             openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-
@@ -147,10 +148,14 @@ jobs:
           mkdir -p "$OPENWRT_PATH/files"
           [ -d files ] && cp -a files/. "$OPENWRT_PATH/files/"
           case "${{ inputs.version }}" in
-            home)
-              [ -d files-home ] && cp -a files-home/. "$OPENWRT_PATH/files/"
+            core)
+              [ -d files-homeproxy ] && cp -a files-homeproxy/. "$OPENWRT_PATH/files/"
+              ;;
+            core-daed)
+              [ -d files-daed ] && cp -a files-daed/. "$OPENWRT_PATH/files/"
               ;;
             ultimate)
+              [ -d files-homeproxy ] && cp -a files-homeproxy/. "$OPENWRT_PATH/files/"
               [ -d files-ultimate ] && cp -a files-ultimate/. "$OPENWRT_PATH/files/"
               ;;
           esac
@@ -158,6 +163,17 @@ jobs:
           chmod +x scripts/diy.sh
           cd "$OPENWRT_PATH"
           "$GITHUB_WORKSPACE/scripts/diy.sh" "${{ inputs.version }}"
+          case "${{ inputs.version }}" in
+            core)
+              cp "$GITHUB_WORKSPACE/configs/core.config" .config
+              ;;
+            core-daed)
+              cat "$GITHUB_WORKSPACE/configs/core.config" "$GITHUB_WORKSPACE/configs/core-daed.config" > .config
+              ;;
+            ultimate)
+              cat "$GITHUB_WORKSPACE/configs/core.config" "$GITHUB_WORKSPACE/configs/ultimate.config" > .config
+              ;;
+          esac
 
       - name: Download packages
         run: |
@@ -167,14 +183,19 @@ jobs:
           grep -q '^CONFIG_TARGET_ROOTFS_SQUASHFS=y$' .config
           case "${{ inputs.version }}" in
             core)
-              ! grep -q '^CONFIG_PACKAGE_luci-app-homeproxy=y$' .config
-              ! grep -q '^CONFIG_PACKAGE_sing-box=y$' .config
-              ! grep -q '^CONFIG_PACKAGE_dockerd=y$' .config
-              ;;
-            home)
               grep -q '^CONFIG_PACKAGE_luci-app-homeproxy=y$' .config
               grep -q '^CONFIG_PACKAGE_sing-box=y$' .config
               grep -q '^CONFIG_PACKAGE_kmod-nft-tproxy=y$' .config
+              grep -q '^CONFIG_PACKAGE_luci-app-zerotier=y$' .config
+              ! grep -q '^CONFIG_PACKAGE_dockerd=y$' .config
+              ;;
+            core-daed)
+              grep -q '^CONFIG_PACKAGE_luci-app-daed=y$' .config
+              grep -q '^CONFIG_PACKAGE_daed=y$' .config
+              grep -q '^CONFIG_KERNEL_DEBUG_INFO_BTF=y$' .config
+              grep -q '^CONFIG_KERNEL_XDP_SOCKETS=y$' .config
+              ! grep -q '^CONFIG_PACKAGE_luci-app-homeproxy=y$' .config
+              ! grep -q '^CONFIG_PACKAGE_sing-box=y$' .config
               ! grep -q '^CONFIG_PACKAGE_dockerd=y$' .config
               ;;
             ultimate)
@@ -255,8 +276,8 @@ jobs:
             echo "Variant: ${{ inputs.version }}"
             echo "Final .config SHA256: $(sha256sum "${OPENWRT_PATH}/.config" | awk '{print $1}')"
             echo "core.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/core.config" | awk '{print $1}')"
-            if [ "${{ inputs.version }}" = "home" ] || [ "${{ inputs.version }}" = "ultimate" ]; then
-              echo "home.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/home.config" | awk '{print $1}')"
+            if [ "${{ inputs.version }}" = "core-daed" ]; then
+              echo "core-daed.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/core-daed.config" | awk '{print $1}')"
             fi
             if [ "${{ inputs.version }}" = "ultimate" ]; then
               echo "ultimate.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/ultimate.config" | awk '{print $1}')"
@@ -264,6 +285,7 @@ jobs:
             echo "DIY script SHA256: $(sha256sum "${GITHUB_WORKSPACE}/scripts/diy.sh" | awk '{print $1}')"
             echo "Aurora commit: ${AURORA_COMMIT:-unknown}"
             echo "HomeProxy commit: ${HOMEPROXY_COMMIT:-not-included}"
+            echo "DAED commit: ${DAED_COMMIT:-not-included}"
             echo
             echo "Firmware SHA256:"
             cat sha256sums

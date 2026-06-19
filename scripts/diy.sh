@@ -3,7 +3,7 @@ set -euo pipefail
 
 # diy.sh - Apply custom configurations before build
 # Usage: bash diy.sh <variant>
-#   variant: core | home | ultimate
+#   variant: core | core-daed | ultimate
 
 VARIANT="${1:-core}"
 OPENWRT_DIR="${OPENWRT_PATH:-openwrt}"
@@ -64,34 +64,50 @@ cd package/luci-theme-aurora
 git -c advice.detachedHead=false checkout "$AURORA_COMMIT"
 cd "$OLDPWD" || exit 1
 
-# ── Inject HomeProxy (home / ultimate only) ──
-if [ "$VARIANT" != "core" ]; then
-  echo "Injecting HomeProxy (pinned commit)"
+if [ "$VARIANT" = "core-daed" ]; then
+  echo "Injecting luci-app-daed (pinned commit)"
 
-  rm -rf \
-    feeds/luci/applications/luci-app-homeproxy \
-    package/feeds/luci/luci-app-homeproxy \
-    package/luci-app-homeproxy
+  rm -rf package/dae package/daed package/luci-app-daed
 
-  HOMEPROXY_COMMIT="29f61caf303cd3a7051e26055dc97fdf4890e2b0"
-  HOMEPROXY_MAKEFILE_SHA256="6700e5b519ca151657f3c8b67d2f067d4f45bb91337a43ca583e6386cb8d0792"
+  DAED_COMMIT="f58331c6e646ae04ed832f20a3f9b8d74e44831c"
   if [ -n "${GITHUB_ENV:-}" ]; then
-    echo "HOMEPROXY_COMMIT=${HOMEPROXY_COMMIT}" >> "$GITHUB_ENV"
+    echo "DAED_COMMIT=${DAED_COMMIT}" >> "$GITHUB_ENV"
   fi
 
-  git clone https://github.com/immortalwrt/homeproxy package/luci-app-homeproxy
-  cd package/luci-app-homeproxy
-  git -c advice.detachedHead=false checkout "$HOMEPROXY_COMMIT"
-
-  COMPUTED_SHA256="$(sha256sum Makefile 2>/dev/null | awk '{print $1}')"
-  if [ "$COMPUTED_SHA256" != "$HOMEPROXY_MAKEFILE_SHA256" ]; then
-    echo "ERROR: HomeProxy Makefile SHA256 mismatch!" >&2
-    echo "  Expected: ${HOMEPROXY_MAKEFILE_SHA256}" >&2
-    echo "  Got:      ${COMPUTED_SHA256:-<file not found>}" >&2
-    exit 1
-  fi
-  echo "HomeProxy Makefile integrity verified (SHA256 match)"
+  git clone https://github.com/QiuSimons/luci-app-daed package/dae
+  cd package/dae
+  git -c advice.detachedHead=false checkout "$DAED_COMMIT"
   cd "$OLDPWD" || exit 1
+
+  exit 0
 fi
+
+# ── Inject HomeProxy ──
+echo "Injecting HomeProxy (pinned commit)"
+
+rm -rf \
+  feeds/luci/applications/luci-app-homeproxy \
+  package/feeds/luci/luci-app-homeproxy \
+  package/luci-app-homeproxy
+
+HOMEPROXY_COMMIT="29f61caf303cd3a7051e26055dc97fdf4890e2b0"
+HOMEPROXY_MAKEFILE_SHA256="6700e5b519ca151657f3c8b67d2f067d4f45bb91337a43ca583e6386cb8d0792"
+if [ -n "${GITHUB_ENV:-}" ]; then
+  echo "HOMEPROXY_COMMIT=${HOMEPROXY_COMMIT}" >> "$GITHUB_ENV"
+fi
+
+git clone https://github.com/immortalwrt/homeproxy package/luci-app-homeproxy
+cd package/luci-app-homeproxy
+git -c advice.detachedHead=false checkout "$HOMEPROXY_COMMIT"
+
+COMPUTED_SHA256="$(sha256sum Makefile 2>/dev/null | awk '{print $1}')"
+if [ "$COMPUTED_SHA256" != "$HOMEPROXY_MAKEFILE_SHA256" ]; then
+  echo "ERROR: HomeProxy Makefile SHA256 mismatch!" >&2
+  echo "  Expected: ${HOMEPROXY_MAKEFILE_SHA256}" >&2
+  echo "  Got:      ${COMPUTED_SHA256:-<file not found>}" >&2
+  exit 1
+fi
+echo "HomeProxy Makefile integrity verified (SHA256 match)"
+cd "$OLDPWD" || exit 1
 
 exit 0
