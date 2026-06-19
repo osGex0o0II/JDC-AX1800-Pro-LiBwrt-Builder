@@ -189,40 +189,59 @@ jobs:
         run: |
           cd "$OPENWRT_PATH"
           make defconfig
-          grep -q '^CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y$' .config
-          grep -q '^CONFIG_TARGET_ROOTFS_SQUASHFS=y$' .config
+          require_config() {
+            symbol="$1"
+            if grep -q "^${symbol}=y$" .config; then
+              echo "OK: ${symbol}=y"
+              return 0
+            fi
+            echo "::error::Missing required config: ${symbol}=y" >&2
+            grep -E "^(# )?${symbol}(=| is not set)" .config >&2 || true
+            exit 1
+          }
+          forbid_config() {
+            symbol="$1"
+            if grep -q "^${symbol}=y$" .config; then
+              echo "::error::Forbidden config is enabled: ${symbol}=y" >&2
+              grep -E "^(# )?${symbol}(=| is not set)" .config >&2 || true
+              exit 1
+            fi
+            echo "OK: ${symbol} is not enabled"
+          }
+          require_config CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01
+          require_config CONFIG_TARGET_ROOTFS_SQUASHFS
           case "${{ inputs.version }}" in
             core)
-              grep -q '^CONFIG_PACKAGE_luci-app-homeproxy=y$' .config
-              grep -q '^CONFIG_PACKAGE_sing-box=y$' .config
-              grep -q '^CONFIG_PACKAGE_kmod-nft-tproxy=y$' .config
-              grep -q '^CONFIG_PACKAGE_luci-app-zerotier=y$' .config
-              ! grep -q '^CONFIG_PACKAGE_dockerd=y$' .config
+              require_config CONFIG_PACKAGE_luci-app-homeproxy
+              require_config CONFIG_PACKAGE_sing-box
+              require_config CONFIG_PACKAGE_kmod-nft-tproxy
+              require_config CONFIG_PACKAGE_luci-app-zerotier
+              forbid_config CONFIG_PACKAGE_dockerd
               ;;
             core-daed)
-              grep -q '^CONFIG_PACKAGE_luci-app-daed=y$' .config
-              grep -q '^CONFIG_PACKAGE_daed=y$' .config
-              grep -q '^CONFIG_DAED_USE_KERNEL_BTF=y$' .config
-              grep -q '^CONFIG_BPF_TOOLCHAIN_HOST=y$' .config
-              grep -q '^CONFIG_KERNEL_CGROUP_BPF=y$' .config
-              grep -q '^CONFIG_KERNEL_BPF_EVENTS=y$' .config
-              grep -q '^CONFIG_KERNEL_DEBUG_INFO_BTF=y$' .config
-              grep -q '^CONFIG_KERNEL_XDP_SOCKETS=y$' .config
-              grep -q '^CONFIG_PACKAGE_kmod-sched-bpf=y$' .config
-              grep -q '^CONFIG_PACKAGE_kmod-veth=y$' .config
-              grep -q '^CONFIG_PACKAGE_kmod-xdp-sockets-diag=y$' .config
-              grep -q '^CONFIG_PACKAGE_v2ray-geoip=y$' .config
-              grep -q '^CONFIG_PACKAGE_v2ray-geosite=y$' .config
-              ! grep -q '^CONFIG_PACKAGE_luci-app-homeproxy=y$' .config
-              ! grep -q '^CONFIG_PACKAGE_sing-box=y$' .config
-              ! grep -q '^CONFIG_PACKAGE_dockerd=y$' .config
+              require_config CONFIG_PACKAGE_luci-app-daed
+              require_config CONFIG_PACKAGE_daed
+              require_config CONFIG_DAED_USE_KERNEL_BTF
+              require_config CONFIG_BPF_TOOLCHAIN_HOST
+              require_config CONFIG_KERNEL_CGROUP_BPF
+              require_config CONFIG_KERNEL_BPF_EVENTS
+              require_config CONFIG_KERNEL_DEBUG_INFO_BTF
+              require_config CONFIG_KERNEL_XDP_SOCKETS
+              require_config CONFIG_PACKAGE_kmod-sched-bpf
+              require_config CONFIG_PACKAGE_kmod-veth
+              require_config CONFIG_PACKAGE_kmod-xdp-sockets-diag
+              require_config CONFIG_PACKAGE_v2ray-geoip
+              require_config CONFIG_PACKAGE_v2ray-geosite
+              forbid_config CONFIG_PACKAGE_luci-app-homeproxy
+              forbid_config CONFIG_PACKAGE_sing-box
+              forbid_config CONFIG_PACKAGE_dockerd
               ;;
             ultimate)
-              grep -q '^CONFIG_PACKAGE_luci-app-homeproxy=y$' .config
-              grep -q '^CONFIG_PACKAGE_sing-box=y$' .config
-              grep -q '^CONFIG_PACKAGE_dockerd=y$' .config
-              grep -q '^CONFIG_PACKAGE_luci-app-dockerman=y$' .config
-              grep -q '^CONFIG_PACKAGE_block-mount=y$' .config
+              require_config CONFIG_PACKAGE_luci-app-homeproxy
+              require_config CONFIG_PACKAGE_sing-box
+              require_config CONFIG_PACKAGE_dockerd
+              require_config CONFIG_PACKAGE_luci-app-dockerman
+              require_config CONFIG_PACKAGE_block-mount
               ;;
           esac
           make download -j"$(nproc)"
