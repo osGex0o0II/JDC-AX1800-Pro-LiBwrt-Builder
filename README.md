@@ -1,4 +1,4 @@
-# ExcaliburOS
+# JDC AX1800 Pro LiBwrt Builder
 
 为 **JDC AX1800 Pro / 京东云无线宝亚瑟** 编译的 LiBwrt NSS 固件，基于 [LiBwrt/openwrt-6.x](https://github.com/LiBwrt/openwrt-6.x) `main-nss` 分支。
 
@@ -36,7 +36,7 @@
 
 1. Fork 本仓库。
 2. 进入 **Actions**，启用 workflow。
-3. 打开 **Build ExcaliburOS**。
+3. 打开 **Build JDC AX1800 Pro LiBwrt**。
 4. 点击 **Run workflow**，选择 `core`、`core-daed` 或 `ultimate`。
 5. 可选：在 `repo_commit` 填入 LiBwrt 上游 commit hash，用于固定源码版本。
 6. 编译完成后从 workflow artifact 或 Releases 下载固件。
@@ -103,7 +103,7 @@ make -j"$(nproc)"
 已运行 OpenWrt/LiBwrt 的设备可通过 LuCI「系统 - 备份/升级」上传 `sysupgrade.bin`，或通过 SSH 执行：
 
 ```bash
-sysupgrade -n /tmp/ExcaliburOS-*-sysupgrade.bin
+sysupgrade -n /tmp/JDC-AX1800-Pro-LiBwrt-*-sysupgrade.bin
 ```
 
 跨大版本、跨分区布局、跨第三方固件升级时，建议不要保留旧配置。首次刷机和 U-Boot 相关操作请以你当前设备分区布局和救砖资料为准。
@@ -127,7 +127,7 @@ net.ipv4.tcp_congestion_control=bbr
 
 ### 健康检查
 
-固件内置 `/usr/sbin/excalibur-healthcheck`，会检查：
+固件内置 `/usr/sbin/jdc-healthcheck`，会检查：
 
 - 默认路由
 - 本地 dnsmasq 解析

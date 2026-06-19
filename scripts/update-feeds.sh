@@ -1,5 +1,5 @@
 #!/bin/bash
-# update-feeds.sh - Update and install feeds for ExcaliburOS build
+# update-feeds.sh - Update and install feeds for JDC AX1800 Pro LiBwrt build
 
 OPENWRT_DIR="${OPENWRT_PATH:-openwrt}"
 cd "$OPENWRT_DIR" || exit 1

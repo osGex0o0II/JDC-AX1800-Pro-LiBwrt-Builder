@@ -16,9 +16,10 @@ uci commit system
 [ -x /etc/init.d/daed ] && /etc/init.d/daed stop 2>/dev/null || true
 
 CRON_FILE="/etc/crontabs/root"
-CRON_LINE="*/5 * * * * /usr/sbin/excalibur-healthcheck >/dev/null 2>&1"
+CRON_LINE="*/5 * * * * /usr/sbin/jdc-healthcheck >/dev/null 2>&1"
 mkdir -p /etc/crontabs
 touch "$CRON_FILE"
+sed -i '/\/usr\/sbin\/[^ ]*-healthcheck/d' "$CRON_FILE"
 grep -Fxq "$CRON_LINE" "$CRON_FILE" 2>/dev/null || echo "$CRON_LINE" >> "$CRON_FILE"
 
 [ -x /etc/init.d/cron ] && /etc/init.d/cron enable 2>/dev/null || true

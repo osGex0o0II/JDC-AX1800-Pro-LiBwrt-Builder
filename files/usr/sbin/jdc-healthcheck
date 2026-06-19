@@ -2,8 +2,8 @@
 
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
-TAG="excalibur-healthcheck"
-STATE_DIR="/tmp/excalibur-healthcheck"
+TAG="jdc-healthcheck"
+STATE_DIR="/tmp/jdc-healthcheck"
 MIN_MEM_KB="${MIN_MEM_KB:-32768}"
 COOLDOWN_SEC="${COOLDOWN_SEC:-600}"
 

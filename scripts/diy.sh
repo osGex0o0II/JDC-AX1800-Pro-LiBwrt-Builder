@@ -39,8 +39,8 @@ done
 
 # ── Write build info ──
 mkdir -p files/etc
-cat > files/etc/excalibur_release << EOF
-ExcaliburOS $VARIANT
+cat > files/etc/firmware_build << EOF
+JDC AX1800 Pro LiBwrt $VARIANT
 Version: ${GITHUB_RUN_NUMBER:-0}
 Date: $(date +%Y.%m.%d)
 Source: ${REPO_URL:-unknown}
