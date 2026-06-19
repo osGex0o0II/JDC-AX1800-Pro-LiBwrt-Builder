@@ -52,23 +52,32 @@ EOF
 # ── Inject Aurora theme (pinned commit) ──
 rm -rf package/luci-theme-aurora
 AURORA_COMMIT="4f5ef09d1523773db1314c918d48744a5c518b28"
+if [ -n "${GITHUB_ENV:-}" ]; then
+  echo "AURORA_COMMIT=${AURORA_COMMIT}" >> "$GITHUB_ENV"
+fi
 if ! git clone https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora; then
   rm -rf package/luci-theme-aurora
-  echo "WARNING: Failed to clone luci-theme-aurora" >&2
-else
-  cd package/luci-theme-aurora
-  git -c advice.detachedHead=false checkout "$AURORA_COMMIT" 2>/dev/null
-  cd "$OLDPWD"
+  echo "ERROR: Failed to clone luci-theme-aurora" >&2
+  exit 1
 fi
+cd package/luci-theme-aurora
+git -c advice.detachedHead=false checkout "$AURORA_COMMIT"
+cd "$OLDPWD" || exit 1
 
 # ── Inject HomeProxy (home / ultimate only) ──
 if [ "$VARIANT" != "core" ]; then
   echo "Injecting HomeProxy (pinned commit)"
 
-  rm -rf package/luci-app-homeproxy
+  rm -rf \
+    feeds/luci/applications/luci-app-homeproxy \
+    package/feeds/luci/luci-app-homeproxy \
+    package/luci-app-homeproxy
 
   HOMEPROXY_COMMIT="29f61caf303cd3a7051e26055dc97fdf4890e2b0"
   HOMEPROXY_MAKEFILE_SHA256="6700e5b519ca151657f3c8b67d2f067d4f45bb91337a43ca583e6386cb8d0792"
+  if [ -n "${GITHUB_ENV:-}" ]; then
+    echo "HOMEPROXY_COMMIT=${HOMEPROXY_COMMIT}" >> "$GITHUB_ENV"
+  fi
 
   git clone https://github.com/immortalwrt/homeproxy package/luci-app-homeproxy
   cd package/luci-app-homeproxy
@@ -82,7 +91,7 @@ if [ "$VARIANT" != "core" ]; then
     exit 1
   fi
   echo "HomeProxy Makefile integrity verified (SHA256 match)"
-  cd "$OLDPWD"
+  cd "$OLDPWD" || exit 1
 fi
 
 exit 0

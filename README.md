@@ -1,92 +1,174 @@
 # ExcaliburOS
 
-The Sword of Arthur.
+为 **JDC AX1800 Pro / 京东云无线宝后羿** 编译的 LiBwrt NSS 固件，基于 [LiBwrt/openwrt-6.x](https://github.com/LiBwrt/openwrt-6.x) `main-nss` 分支。
 
-Custom LiBwrt Build for JDC AX1800 Pro (Arthur)
+[![Build](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/actions/workflows/build.yml/badge.svg)](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/actions/workflows/build.yml)
+[![License](https://img.shields.io/github/license/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder)](LICENSE)
 
-Based on [LiBwrt/openwrt-6.x](https://github.com/LiBwrt/openwrt-6.x) (`main-nss`, kernel 6.12)
+> 本项目面向有经验的 OpenWrt/LiBwrt 用户。刷机、改分区和 U-Boot 操作均有变砖风险，执行前请确认设备型号、备份原厂分区，并准备好救砖手段。
 
-[![Build](https://github.com/YOUR_USERNAME/ExcaliburOS/actions/workflows/build.yml/badge.svg)](https://github.com/YOUR_USERNAME/ExcaliburOS/actions/workflows/build.yml)
-[![License](https://img.shields.io/github/license/YOUR_USERNAME/ExcaliburOS)](LICENSE)
+## 特性
 
-## Features
+- 目标设备：`jdcloud_re-ss-01`
+- Qualcomm IPQ60xx NSS 硬件加速
+- 有线主路由取向，默认移除 ath11k Wi-Fi 相关包
+- BBR + fq，内建 `sch_fq`，避免启动早期 sysctl 失败
+- Aurora LuCI 主题，固定上游 commit
+- HomeProxy/sing-box 可选，固定 HomeProxy commit 并校验 Makefile SHA256
+- GitHub Actions 自动编译、上传 artifact、发布 Release
+- Release 附带 manifest、固件 SHA256、上游源码信息和最终配置摘要
+- 默认关闭 `ttyd`，默认关闭 flow offloading，避免与 NSS 路径冲突
 
-- Optimized for IPQ6000 with **full NSS hardware acceleration**
-- 512MB / 1G RAM Friendly
-- eMMC Storage Support
-- Docker Ready (Ultimate variant)
-- GitHub Actions CI/CD
-- BBR + fq congestion control
-- CoreMark benchmark built-in
+## 固件变体
 
-## Build Variants
+| 变体 | 定位 | 主要内容 |
+|:---|:---|:---|
+| `core` | 基础主路由 | LuCI、防火墙、IPv6、UPnP、Tailscale、Samba、SQM、统计、USB 存储、CoreMark |
+| `home` | 家用代理网关 | 在 `core` 基础上增加 HomeProxy、sing-box、TProxy、WireGuard、iperf3 |
+| `ultimate` | 全功能实验版 | 在 `home` 基础上增加 Docker、Dockerman、Aria2、DiskMan、更多文件系统支持 |
 
-| Variant | Use Case | Size |
-|---------|----------|------|
-| **Core** | Wired router / Enterprise | ~35MB |
-| **Home** | Home network + Proxy | ~55MB |
-| **Ultimate** | All-in-one + Docker | ~75MB |
+`home.config` 是在 `core.config` 上叠加的增量配置，`ultimate.config` 是在 `core.config + home.config` 上继续叠加的增量配置。
 
-See `configs/*.config` for complete package lists.
+## 使用 GitHub Actions 编译
 
-## Quick Start (GitHub Actions)
+1. Fork 本仓库。
+2. 进入 **Actions**，启用 workflow。
+3. 打开 **Build ExcaliburOS**。
+4. 点击 **Run workflow**，选择 `core`、`home` 或 `ultimate`。
+5. 可选：在 `repo_commit` 填入 LiBwrt 上游 commit hash，用于固定源码版本。
+6. 编译完成后从 workflow artifact 或 Releases 下载固件。
 
-1. Fork this repository
-2. Go to **Actions** → **Build ExcaliburOS**
-3. Click **Run workflow**, select `core` / `home` / `ultimate`
-4. Wait ~2-3 hours
-5. Download firmware from Releases
+Actions 会在编译前校验目标设备和关键软件包，避免配置叠加失败或上游 defconfig 变化导致包被静默移除。
 
-### Optional: Lock upstream commit
-
-Enter a commit hash in `repo_commit` to pin the upstream source for reproducible builds.
-
-## Build Locally
+## 本地编译
 
 ```bash
-git clone --depth 1 -b main-nss https://github.com/LiBwrt/openwrt-6.x.git libwrt
-cp configs/core.config libwrt/.config
-cd libwrt
-./scripts/feeds update -a && ./scripts/feeds install -a
+git clone --depth 1 -b main-nss https://github.com/LiBwrt/openwrt-6.x.git openwrt
+cd openwrt
+
+# core
+cp ../configs/core.config .config
+
+# home
+# cat ../configs/core.config ../configs/home.config > .config
+
+# ultimate
+# cat ../configs/core.config ../configs/home.config ../configs/ultimate.config > .config
+
+./scripts/feeds update -a
+./scripts/feeds install -a
+
+mkdir -p files
+cp -a ../files/. files/
+
+# home 需要额外复制
+# cp -a ../files-home/. files/
+
+# ultimate 需要额外复制
+# cp -a ../files-ultimate/. files/
+
+OPENWRT_PATH="$PWD" bash ../scripts/diy.sh core
 make defconfig
-make download -j8
-make -j$(nproc)
+make download -j"$(nproc)"
+make -j"$(nproc)"
 ```
 
-## Default Config
+本地编译 `home` 或 `ultimate` 时，请把 `diy.sh` 的最后一个参数改成对应变体。
 
-| Item | Value |
-|------|-------|
-| Management IP | 192.168.1.1 |
-| Username | root |
-| Password | password |
-| LuCI Language | 简体中文 |
+## 默认配置
 
-## Project Structure
+| 项目 | 值 |
+|:---|:---|
+| 管理地址 | `192.168.1.1` |
+| 用户名 | `root` |
+| 密码 | OpenWrt 默认空密码，首次登录后请立即设置 |
+| LuCI 语言 | 简体中文 |
+| 默认主题 | Aurora |
+| TTYD | 已安装，默认关闭 |
+| flow offloading | 默认关闭 |
 
+## 刷机与升级
+
+生成的固件通常包含：
+
+- `*-factory.ubi`：用于从 U-Boot 或特定过渡环境首次刷入。
+- `*-sysupgrade.bin`：用于已运行 OpenWrt/LiBwrt 时升级。
+
+已运行 OpenWrt/LiBwrt 的设备可通过 LuCI「系统 - 备份/升级」上传 `sysupgrade.bin`，或通过 SSH 执行：
+
+```bash
+sysupgrade -n /tmp/ExcaliburOS-*-sysupgrade.bin
 ```
-ExcaliburOS/
+
+跨大版本、跨分区布局、跨第三方固件升级时，建议不要保留旧配置。首次刷机和 U-Boot 相关操作请以你当前设备分区布局和救砖资料为准。
+
+## 性能与稳定性说明
+
+### NSS 与 flow offloading
+
+本固件默认使用 NSS 作为主要加速路径，并在首次启动时关闭软件 flow offloading 和硬件 flow offloading。NSS 与 OpenWrt 的 flow offloading 可能竞争数据包处理路径，混用可能导致吞吐下降或连接异常。
+
+### BBR + fq
+
+固件默认配置：
+
+```text
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+```
+
+`scripts/diy.sh` 会把 `CONFIG_NET_SCH_FQ=y` 写入目标内核配置，确保系统启动早期就能设置 `fq`。
+
+### 健康检查
+
+固件内置 `/usr/sbin/excalibur-healthcheck`，会检查：
+
+- 默认路由
+- 本地 dnsmasq 解析
+- HomeProxy/sing-box 状态
+- Docker 状态
+- 可用内存
+
+`home` 和 `ultimate` 变体会通过 cron 定期运行健康检查。脚本只做服务级恢复和日志记录，不会自动重启整机。
+
+## 项目结构
+
+```text
+.
 ├── .github/workflows/
-│   ├── build.yml        # Build firmware (workflow_dispatch)
-│   └── cleanup.yml      # Clean old runs and releases
+│   ├── build.yml          # 编译与发布
+│   └── cleanup.yml        # 清理旧 workflow runs 和 releases
 ├── configs/
-│   ├── core.config      # Core variant config
-│   ├── home.config      # Home variant config (additive)
-│   └── ultimate.config  # Ultimate variant config (additive)
+│   ├── core.config        # 基础配置
+│   ├── home.config        # home 增量配置
+│   └── ultimate.config    # ultimate 增量配置
+├── files/                 # 所有变体共用 overlay
+├── files-home/            # home 专属 overlay
+├── files-ultimate/        # ultimate 专属 overlay
 ├── scripts/
-│   ├── diy.sh           # Custom build script
-│   ├── update-feeds.sh  # Feeds management
-│   └── version.sh       # Auto versioning
-├── files/               # Common files overlay
-│   └── etc/
-│       ├── sysctl.d/10-bbr.conf
-│       └── uci-defaults/
+│   ├── diy.sh             # 编译前自定义
+│   ├── update-feeds.sh    # feeds 更新
+│   └── version.sh         # 版本信息
 ├── patches/
 ├── docs/
 ├── README.md
 └── LICENSE
 ```
 
-## License
+## 自定义建议
 
-[GPL-2.0](LICENSE)
+- 修改包选择时优先编辑 `configs/*.config`，不要直接改 Actions 里的包列表。
+- 增加运行时文件时优先放到对应 overlay：通用放 `files/`，代理网关放 `files-home/`，Docker/存储相关放 `files-ultimate/`。
+- 更新 HomeProxy commit 时，同步更新 `HOMEPROXY_MAKEFILE_SHA256`。
+- 更新第三方 GitHub Actions 时，建议继续固定到具体 commit SHA。
+
+## 致谢
+
+- [LiBwrt/openwrt-6.x](https://github.com/LiBwrt/openwrt-6.x)
+- [osGex0o0II/ZN-M2-LiBwrt-Builder](https://github.com/osGex0o0II/ZN-M2-LiBwrt-Builder)
+- [immortalwrt/homeproxy](https://github.com/immortalwrt/homeproxy)
+- [eamonxg/luci-theme-aurora](https://github.com/eamonxg/luci-theme-aurora)
+
+## 许可证
+
+[GPL-2.0-only](LICENSE)

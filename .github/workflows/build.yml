@@ -61,7 +61,7 @@ jobs:
           sudo timedatectl set-timezone "$TZ"
 
       - name: Maximize build space
-        uses: easimon/maximize-build-space@v10
+        uses: easimon/maximize-build-space@fc881a613ad2a34aca9c9624518214ebc21dfc0c
         with:
           swap-size-mb: 1024
           root-reserve-mb: 1024
@@ -131,7 +131,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ steps.clone_source.outputs.OPENWRT_PATH }}/.ccache
-          key: openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-${{ hashFiles('configs/*.config', 'scripts/diy.sh', 'scripts/version.sh', 'files/**') }}
+          key: openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-${{ hashFiles('configs/*.config', 'scripts/diy.sh', 'scripts/version.sh', 'files/**', 'files-home/**', 'files-ultimate/**') }}
           restore-keys: |
             openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-
             openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-
@@ -146,6 +146,14 @@ jobs:
         run: |
           mkdir -p "$OPENWRT_PATH/files"
           [ -d files ] && cp -a files/. "$OPENWRT_PATH/files/"
+          case "${{ inputs.version }}" in
+            home)
+              [ -d files-home ] && cp -a files-home/. "$OPENWRT_PATH/files/"
+              ;;
+            ultimate)
+              [ -d files-ultimate ] && cp -a files-ultimate/. "$OPENWRT_PATH/files/"
+              ;;
+          esac
           dos2unix scripts/diy.sh
           chmod +x scripts/diy.sh
           cd "$OPENWRT_PATH"
@@ -155,6 +163,28 @@ jobs:
         run: |
           cd "$OPENWRT_PATH"
           make defconfig
+          grep -q '^CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y$' .config
+          grep -q '^CONFIG_TARGET_ROOTFS_SQUASHFS=y$' .config
+          case "${{ inputs.version }}" in
+            core)
+              ! grep -q '^CONFIG_PACKAGE_luci-app-homeproxy=y$' .config
+              ! grep -q '^CONFIG_PACKAGE_sing-box=y$' .config
+              ! grep -q '^CONFIG_PACKAGE_dockerd=y$' .config
+              ;;
+            home)
+              grep -q '^CONFIG_PACKAGE_luci-app-homeproxy=y$' .config
+              grep -q '^CONFIG_PACKAGE_sing-box=y$' .config
+              grep -q '^CONFIG_PACKAGE_kmod-nft-tproxy=y$' .config
+              ! grep -q '^CONFIG_PACKAGE_dockerd=y$' .config
+              ;;
+            ultimate)
+              grep -q '^CONFIG_PACKAGE_luci-app-homeproxy=y$' .config
+              grep -q '^CONFIG_PACKAGE_sing-box=y$' .config
+              grep -q '^CONFIG_PACKAGE_dockerd=y$' .config
+              grep -q '^CONFIG_PACKAGE_luci-app-dockerman=y$' .config
+              grep -q '^CONFIG_PACKAGE_block-mount=y$' .config
+              ;;
+          esac
           make download -j"$(nproc)"
           find dl -maxdepth 1 -type f -size -1024c -print -delete
 
@@ -223,7 +253,17 @@ jobs:
             echo "Source commit: ${SOURCE_COMMIT}"
             echo "Kernel: ${VERSION_KERNEL}"
             echo "Variant: ${{ inputs.version }}"
-            echo "Config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/core.config" | awk '{print $1}')"
+            echo "Final .config SHA256: $(sha256sum "${OPENWRT_PATH}/.config" | awk '{print $1}')"
+            echo "core.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/core.config" | awk '{print $1}')"
+            if [ "${{ inputs.version }}" = "home" ] || [ "${{ inputs.version }}" = "ultimate" ]; then
+              echo "home.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/home.config" | awk '{print $1}')"
+            fi
+            if [ "${{ inputs.version }}" = "ultimate" ]; then
+              echo "ultimate.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/ultimate.config" | awk '{print $1}')"
+            fi
+            echo "DIY script SHA256: $(sha256sum "${GITHUB_WORKSPACE}/scripts/diy.sh" | awk '{print $1}')"
+            echo "Aurora commit: ${AURORA_COMMIT:-unknown}"
+            echo "HomeProxy commit: ${HOMEPROXY_COMMIT:-not-included}"
             echo
             echo "Firmware SHA256:"
             cat sha256sums
@@ -268,7 +308,7 @@ jobs:
           path: firmware
 
       - name: Publish release
-        uses: ncipollo/release-action@v1.21.0
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd
         with:
           name: ExcaliburOS ${{ inputs.version }} v${{ needs.build.outputs.file_date }}
           tag: v${{ needs.build.outputs.file_date }}-${{ inputs.version }}
