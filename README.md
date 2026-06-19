@@ -26,9 +26,9 @@
 |:---|:---|:---|
 | `core` | 日用主路由 | NSS、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、统计、USB 存储、CoreMark |
 | `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 daed/luci-app-daed，并启用 BPF/BTF/XDP 相关配置 |
-| `ultimate` | 全功能版 | 在 `core` 基础上增加 Docker、Dockerman、Aria2、DiskMan、更多文件系统支持 |
+| `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、DiskMan、更多 USB/文件系统支持，不包含 Docker |
 
-`core-daed.config` 是在 `core.config` 上叠加的实验配置，`ultimate.config` 是在 `core.config` 上叠加的全功能配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
+`core-daed.config` 是在 `core.config` 上叠加的实验配置，`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
 
 上游 LiBwrt `main-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。
 
@@ -70,7 +70,7 @@ cp -a ../files-homeproxy/. files/
 # core-daed 需要额外复制 daed 默认项
 # cp -a ../files-daed/. files/
 
-# ultimate 需要额外复制 Docker/存储默认项
+# ultimate 需要额外复制存储下载增强默认项
 # cp -a ../files-ultimate/. files/
 
 OPENWRT_PATH="$PWD" bash ../scripts/diy.sh core
@@ -133,7 +133,6 @@ net.ipv4.tcp_congestion_control=bbr
 - 本地 dnsmasq 解析
 - HomeProxy/sing-box 状态
 - daed 状态
-- Docker 状态
 - 可用内存
 
 `core`、`core-daed` 和 `ultimate` 变体会通过 cron 定期运行健康检查。脚本只做服务级恢复和日志记录，不会自动重启整机。
@@ -148,7 +147,7 @@ net.ipv4.tcp_congestion_control=bbr
 ├── configs/
 │   ├── core.config        # 基础配置
 │   ├── core-daed.config   # daed/eBPF 实验配置
-│   └── ultimate.config    # ultimate 增量配置
+│   └── ultimate.config    # ultimate 存储下载增强配置
 ├── files/                 # 所有变体共用 overlay
 ├── files-homeproxy/       # HomeProxy/sing-box 默认项
 ├── files-daed/            # daed 默认项
@@ -166,7 +165,7 @@ net.ipv4.tcp_congestion_control=bbr
 ## 自定义建议
 
 - 修改包选择时优先编辑 `configs/*.config`，不要直接改 Actions 里的包列表。
-- 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，daed 放 `files-daed/`，Docker/存储相关放 `files-ultimate/`。
+- 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，daed 放 `files-daed/`，ultimate 存储下载增强相关放 `files-ultimate/`。
 - 更新 HomeProxy commit 时，同步更新 `HOMEPROXY_MAKEFILE_SHA256`。
 - 更新 daed 时，同步更新 `DAED_COMMIT`，并优先在 `core-daed` 变体验证。
 - 更新第三方 GitHub Actions 时，建议继续固定到具体 commit SHA。

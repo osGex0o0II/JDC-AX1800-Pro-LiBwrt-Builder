@@ -76,7 +76,13 @@ jobs:
         uses: easimon/maximize-build-space@fc881a613ad2a34aca9c9624518214ebc21dfc0c
         with:
           swap-size-mb: 1024
-          root-reserve-mb: 1024
+          root-reserve-mb: 8192
+          temp-reserve-mb: 1024
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+          remove-codeql: true
+          remove-docker-images: true
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -254,13 +260,30 @@ jobs:
             ultimate)
               require_config CONFIG_PACKAGE_luci-app-homeproxy
               require_config CONFIG_PACKAGE_sing-box
-              require_config CONFIG_PACKAGE_dockerd
-              require_config CONFIG_PACKAGE_luci-app-dockerman
+              require_config CONFIG_PACKAGE_luci-app-aria2
+              require_config CONFIG_PACKAGE_aria2
+              require_config CONFIG_PACKAGE_luci-app-diskman
               require_config CONFIG_PACKAGE_block-mount
+              require_config CONFIG_PACKAGE_kmod-fs-ntfs3
+              require_config CONFIG_PACKAGE_kmod-usb-storage-uas
+              forbid_config CONFIG_PACKAGE_dockerd
+              forbid_config CONFIG_PACKAGE_docker
+              forbid_config CONFIG_PACKAGE_docker-compose
+              forbid_config CONFIG_PACKAGE_containerd
+              forbid_config CONFIG_PACKAGE_runc
+              forbid_config CONFIG_PACKAGE_luci-app-dockerman
+              forbid_config CONFIG_PACKAGE_luci-lib-docker
+              forbid_config CONFIG_PACKAGE_cgroupfs-mount
+              forbid_config CONFIG_PACKAGE_tini
               ;;
           esac
           make download -j"$(nproc)"
           find dl -maxdepth 1 -type f -size -1024c -print -delete
+
+      - name: Check build space before compile
+        run: |
+          df -hT
+          du -sh "$OPENWRT_PATH" "$OPENWRT_PATH/dl" "$OPENWRT_PATH/.ccache" 2>/dev/null || true
 
       - name: Generate changelog
         id: changelog

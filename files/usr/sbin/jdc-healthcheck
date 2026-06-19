@@ -84,24 +84,12 @@ check_daed() {
   fi
 }
 
-check_docker() {
-  if [ ! -x /etc/init.d/dockerd ] || ! /etc/init.d/dockerd enabled >/dev/null 2>&1; then
-    return 0
-  fi
-
-  if ! pidof dockerd >/dev/null 2>&1; then
-    log "dockerd is enabled but not running"
-    restart_service dockerd
-  fi
-}
-
 check_memory
 
 if has_default_route; then
   check_dns
   check_proxy
   check_daed
-  check_docker
 else
   log "no default route"
 fi
