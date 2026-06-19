@@ -221,6 +221,18 @@ jobs:
               forbid_config CONFIG_PACKAGE_dockerd
               ;;
             core-daed)
+              test -f package/dae/daed/Makefile
+              test -f package/dae/luci-app-daed/Makefile
+              test ! -e package/feeds/packages/daed
+              test ! -e package/feeds/luci/luci-app-daed
+              echo "daed package source: package/dae/daed"
+              echo "luci-app-daed package source: package/dae/luci-app-daed"
+              grep -q '^PKG_NAME:=daed$' package/dae/daed/Makefile
+              grep -q '^PKG_NAME:=luci-app-daed$' package/dae/luci-app-daed/Makefile
+              grep -q '^NODE_VERSION:=v24.12.0$' package/dae/daed/Makefile
+              node_version="$(sed -n 's/^NODE_VERSION:=//p' package/dae/daed/Makefile)"
+              curl -fsI --retry 3 --connect-timeout 10 "https://nodejs.org/dist/${node_version}/node-${node_version}-linux-x64.tar.xz" >/dev/null
+              curl -fsIL --retry 3 --connect-timeout 10 "https://github.com/QiuSimons/luci-app-dae/raw/refs/heads/kix/dae/pprof/default.pgo" >/dev/null
               require_config CONFIG_PACKAGE_luci-app-daed
               require_config CONFIG_PACKAGE_daed
               require_config CONFIG_BPF_TOOLCHAIN_HOST

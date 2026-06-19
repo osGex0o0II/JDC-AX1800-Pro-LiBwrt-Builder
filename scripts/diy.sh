@@ -67,7 +67,13 @@ cd "$OLDPWD" || exit 1
 if [ "$VARIANT" = "core-daed" ]; then
   echo "Injecting luci-app-daed (pinned commit)"
 
-  rm -rf package/dae package/daed package/luci-app-daed
+  rm -rf \
+    package/dae \
+    package/daed \
+    package/luci-app-daed \
+    package/feeds/packages/dae \
+    package/feeds/packages/daed \
+    package/feeds/luci/luci-app-daed
 
   DAED_COMMIT="f58331c6e646ae04ed832f20a3f9b8d74e44831c"
   DAED_MAKEFILE_SHA256="e5e6b246fa75b20a2e06ffa840e06b59eb93cd15f06d5db8a12714cd4e279010"
