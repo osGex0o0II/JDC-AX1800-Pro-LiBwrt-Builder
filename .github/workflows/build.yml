@@ -38,7 +38,7 @@ jobs:
       file_date: ${{ steps.compile.outputs.FILE_DATE }}
       version_kernel: ${{ steps.detect_target.outputs.VERSION_KERNEL }}
       source_commit: ${{ steps.clone_source.outputs.SOURCE_COMMIT }}
-      version: ${{ steps.version.outputs.VERSION }}
+      version: ${{ steps.version.outputs.EXCALIBUR_VERSION }}
       changelog: ${{ steps.changelog.outputs.CHANGELOG }}
       firmware_release: true
 
@@ -120,6 +120,7 @@ jobs:
               ;;
           esac
           cd openwrt
+          unset VERSION
           make defconfig
           grep -q '^CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y$' .config \
             && echo "Target device verified: jdcloud_re-ss-01"
@@ -188,6 +189,7 @@ jobs:
       - name: Download packages
         run: |
           cd "$OPENWRT_PATH"
+          unset VERSION
           make defconfig
           require_config() {
             symbol="$1"
@@ -258,7 +260,7 @@ jobs:
             git log --oneline -10
             echo ""
             echo "---"
-            echo "构建版本: $VERSION"
+            echo "构建版本: $EXCALIBUR_VERSION"
             echo "目标设备: ${{ steps.detect_target.outputs.DEVICE_TARGET }}/${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}"
             echo "内核版本: ${{ steps.detect_target.outputs.VERSION_KERNEL }}"
             echo "EOF"
@@ -268,6 +270,7 @@ jobs:
         id: compile
         run: |
           cd "$OPENWRT_PATH"
+          unset VERSION
           ccache -M 2G || true
           ccache -z || true
           if make -j"$(nproc)"; then
@@ -306,7 +309,7 @@ jobs:
             echo "Workflow: ${GITHUB_WORKFLOW}"
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "Build date: ${DATE}"
-            echo "Build version: ${VERSION}"
+            echo "Build version: ${EXCALIBUR_VERSION}"
             echo "Source repository: ${REPO_URL}"
             echo "Source branch: ${REPO_BRANCH}"
             echo "Source commit: ${SOURCE_COMMIT}"
