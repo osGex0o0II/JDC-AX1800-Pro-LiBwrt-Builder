@@ -120,16 +120,19 @@ if [ "$VARIANT" = "core-daed" ]; then
     package/feeds/packages/daed \
     package/feeds/luci/luci-app-daed
 
-  DAED_COMMIT="f58331c6e646ae04ed832f20a3f9b8d74e44831c"
-  DAED_MAKEFILE_SHA256="e5e6b246fa75b20a2e06ffa840e06b59eb93cd15f06d5db8a12714cd4e279010"
+  DAED_COMMIT="b2ee25e12ecadea724fa6f5b02e6c8ddd88e9119"
+  DAED_MAKEFILE_SHA256="6d63d892828d9477b6a1bb5f9770149ce176625432e5b987fdb1639ce4634e14"
   LUCI_APP_DAED_MAKEFILE_SHA256="1ce969ca124fe040aa3b80b03f17b44444c9d7cda85e9a4cd7d08e794031e2f9"
   if [ -n "${GITHUB_ENV:-}" ]; then
     echo "DAED_COMMIT=${DAED_COMMIT}" >> "$GITHUB_ENV"
   fi
 
-  git clone https://github.com/QiuSimons/luci-app-daed package/dae
+  mkdir -p package/dae
+  git -C package/dae init
+  git -C package/dae remote add origin https://github.com/QiuSimons/luci-app-daed.git
+  git -C package/dae fetch --depth=1 origin "$DAED_COMMIT"
+  git -C package/dae -c advice.detachedHead=false checkout FETCH_HEAD
   cd package/dae
-  git -c advice.detachedHead=false checkout "$DAED_COMMIT"
 
   DAED_COMPUTED_SHA256="$(sha256sum daed/Makefile 2>/dev/null | awk '{print $1}')"
   if [ "$DAED_COMPUTED_SHA256" != "$DAED_MAKEFILE_SHA256" ]; then
