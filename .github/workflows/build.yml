@@ -1,14 +1,16 @@
 name: Build JDC AX1800 Pro LiBwrt
-run-name: ${{ inputs.version }} · JDC AX1800 Pro · LiBwrt main-nss
+run-name: ${{ inputs.variant || 'all' }} · JDC AX1800 Pro · LiBwrt main-nss
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: Firmware version
+      variant:
+        description: Firmware variant (all publishes a release; single variants upload artifacts only)
         required: true
+        default: all
         type: choice
         options:
+          - all
           - core
           - core-daed
           - ultimate
@@ -18,7 +20,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.inputs.version || 'core' }}
+  group: ${{ github.workflow }}-${{ github.event.inputs.variant || 'all' }}
   cancel-in-progress: true
 
 permissions:
@@ -30,18 +32,32 @@ env:
   TZ: Asia/Shanghai
 
 jobs:
-  build:
-    name: Build ${{ inputs.version || 'core' }} firmware
+  metadata:
+    name: Prepare release metadata
     runs-on: ubuntu-latest
-    timeout-minutes: 360
     outputs:
-      status: ${{ steps.compile.outputs.status }}
-      file_date: ${{ steps.compile.outputs.FILE_DATE }}
-      version_kernel: ${{ steps.detect_target.outputs.VERSION_KERNEL }}
-      source_commit: ${{ steps.clone_source.outputs.SOURCE_COMMIT }}
-      version: ${{ steps.version.outputs.FIRMWARE_VERSION }}
-      changelog: ${{ steps.changelog.outputs.CHANGELOG }}
-      firmware_release: true
+      file_date: ${{ steps.release_date.outputs.file_date }}
+      release_tag: ${{ steps.release_date.outputs.release_tag }}
+
+    steps:
+      - name: Generate release date
+        id: release_date
+        run: |
+          FILE_DATE="$(date '+%Y.%m.%d')"
+          echo "file_date=${FILE_DATE}" | tee -a "$GITHUB_OUTPUT"
+          echo "release_tag=v${FILE_DATE}" | tee -a "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.variant }} firmware
+    runs-on: ubuntu-latest
+    needs: metadata
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(inputs.variant == 'all' && '["core","core-daed","ultimate"]' || format('["{0}"]', inputs.variant)) }}
+    env:
+      FILE_DATE: ${{ needs.metadata.outputs.file_date }}
 
     steps:
       - name: Check server
@@ -115,7 +131,7 @@ jobs:
       - name: Load config and detect target
         id: detect_target
         run: |
-          case "${{ inputs.version }}" in
+          case "${{ matrix.variant }}" in
             core)
               cp configs/core.config openwrt/.config
               ;;
@@ -150,10 +166,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ steps.clone_source.outputs.OPENWRT_PATH }}/.ccache
-          key: openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-${{ hashFiles('configs/*.config', 'scripts/diy.sh', 'scripts/version.sh', 'files/**', 'files-homeproxy/**', 'files-daed/**', 'files-ultimate/**') }}
+          key: openwrt-ccache-${{ matrix.variant }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-${{ hashFiles('configs/*.config', 'scripts/diy.sh', 'scripts/version.sh', 'files/**', 'files-homeproxy/**', 'files-daed/**', 'files-ultimate/**') }}
           restore-keys: |
-            openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-
-            openwrt-ccache-${{ inputs.version || 'core' }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-
+            openwrt-ccache-${{ matrix.variant }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-
+            openwrt-ccache-${{ matrix.variant }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-
 
       - name: Install feeds
         run: |
@@ -165,7 +181,7 @@ jobs:
         run: |
           mkdir -p "$OPENWRT_PATH/files"
           [ -d files ] && cp -a files/. "$OPENWRT_PATH/files/"
-          case "${{ inputs.version }}" in
+          case "${{ matrix.variant }}" in
             core)
               [ -d files-homeproxy ] && cp -a files-homeproxy/. "$OPENWRT_PATH/files/"
               ;;
@@ -180,8 +196,8 @@ jobs:
           dos2unix scripts/diy.sh
           chmod +x scripts/diy.sh
           cd "$OPENWRT_PATH"
-          "$GITHUB_WORKSPACE/scripts/diy.sh" "${{ inputs.version }}"
-          case "${{ inputs.version }}" in
+          "$GITHUB_WORKSPACE/scripts/diy.sh" "${{ matrix.variant }}"
+          case "${{ matrix.variant }}" in
             core)
               cp "$GITHUB_WORKSPACE/configs/core.config" .config
               ;;
@@ -274,7 +290,7 @@ jobs:
           forbid_config CONFIG_PACKAGE_kmod-mac80211
           forbid_config CONFIG_PACKAGE_wpad-openssl
           require_recipe_patch
-          case "${{ inputs.version }}" in
+          case "${{ matrix.variant }}" in
             core)
               test -f feeds/luci/applications/luci-app-homeproxy/Makefile || {
                 echo "::error::Pinned HomeProxy source was not injected at feeds/luci/applications/luci-app-homeproxy" >&2
@@ -373,23 +389,6 @@ jobs:
           df -hT
           du -sh "$OPENWRT_PATH" "$OPENWRT_PATH/dl" "$OPENWRT_PATH/.ccache" 2>/dev/null || true
 
-      - name: Generate changelog
-        id: changelog
-        run: |
-          cd "$OPENWRT_PATH"
-          {
-            echo "CHANGELOG<<EOF"
-            echo "### 上游变更 (LiBwrt main-nss)"
-            echo ""
-            git log --oneline -10
-            echo ""
-            echo "---"
-            echo "构建版本: $FIRMWARE_VERSION"
-            echo "目标设备: ${{ steps.detect_target.outputs.DEVICE_TARGET }}/${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}"
-            echo "内核版本: ${{ steps.detect_target.outputs.VERSION_KERNEL }}"
-            echo "EOF"
-          } | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
-
       - name: Compile firmware
         id: compile
         run: |
@@ -407,7 +406,7 @@ jobs:
           fi
           ccache -s || true
           echo "status=success" >> "$GITHUB_OUTPUT"
-          echo "FILE_DATE=$(date '+%Y.%m.%d')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "FILE_DATE=${FILE_DATE}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           echo "DATE=$(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
 
       - name: Organize firmware
@@ -419,14 +418,14 @@ jobs:
           test -f ./*jdcloud_re-ss-01*squashfs-factory*
           test -f ./*jdcloud_re-ss-01*squashfs-sysupgrade*
           cat sha256sums
-          VARIANT_UPPER=$(echo "${{ inputs.version }}" | tr '[:lower:]' '[:upper:]')
+          VARIANT="${{ matrix.variant }}"
           for f in *jdcloud_re-ss-01*squashfs-factory*; do
-            [ -f "$f" ] && mv "$f" "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT_UPPER}-factory.bin"
+            [ -f "$f" ] && mv "$f" "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT}-factory.bin"
           done
           for f in *jdcloud_re-ss-01*squashfs-sysupgrade*; do
-            [ -f "$f" ] && mv "$f" "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT_UPPER}-sysupgrade.bin"
+            [ -f "$f" ] && mv "$f" "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT}-sysupgrade.bin"
           done
-          sha256sum JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-* > sha256sums
+          sha256sum JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT}-*.bin > "sha256sums-${VARIANT}"
           {
             echo "Builder repository: ${GITHUB_REPOSITORY}"
             echo "Builder commit: ${GITHUB_SHA}"
@@ -438,13 +437,13 @@ jobs:
             echo "Source branch: ${REPO_BRANCH}"
             echo "Source commit: ${SOURCE_COMMIT}"
             echo "Kernel: ${VERSION_KERNEL}"
-            echo "Variant: ${{ inputs.version }}"
+            echo "Variant: ${VARIANT}"
             echo "Final .config SHA256: $(sha256sum "${OPENWRT_PATH}/.config" | awk '{print $1}')"
             echo "core.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/core.config" | awk '{print $1}')"
-            if [ "${{ inputs.version }}" = "core-daed" ]; then
+            if [ "${VARIANT}" = "core-daed" ]; then
               echo "core-daed.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/core-daed.config" | awk '{print $1}')"
             fi
-            if [ "${{ inputs.version }}" = "ultimate" ]; then
+            if [ "${VARIANT}" = "ultimate" ]; then
               echo "ultimate.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/ultimate.config" | awk '{print $1}')"
             fi
             echo "DIY script SHA256: $(sha256sum "${GITHUB_WORKSPACE}/scripts/diy.sh" | awk '{print $1}')"
@@ -453,54 +452,109 @@ jobs:
             echo "DAED commit: ${DAED_COMMIT:-not-included}"
             echo
             echo "Firmware SHA256:"
-            cat sha256sums
-          } > BUILD-MANIFEST.txt
-          {
-            echo "**JDC AX1800 Pro LiBwrt ${{ inputs.version }}**"
-            echo
-            echo "- Source: ${REPO_URL} (${REPO_BRANCH})"
-            echo "- Kernel: ${VERSION_KERNEL}"
-            echo "- Build: ${FILE_DATE}"
-            echo "- Source revision:"
-            echo
-            echo '```'
-            printf '%s\n' "${VERSION_INFO}"
-            echo '```'
-            echo
-            echo "Build manifest and OpenWrt buildinfo files are attached for traceability."
-          } > RELEASE.md
-          rm -f feeds.buildinfo version.buildinfo
+            cat "sha256sums-${VARIANT}"
+          } > "BUILD-MANIFEST-${VARIANT}.txt"
+          build_info_files=("BUILD-MANIFEST-${VARIANT}.txt")
+          for f in config.buildinfo feeds.buildinfo version.buildinfo profiles.json *.manifest; do
+            [ -e "$f" ] && build_info_files+=("$f")
+          done
+          tar -czf "build-info-${FILE_DATE}-${VARIANT}.tar.gz" "${build_info_files[@]}"
           echo "FIRMWARE_PATH=$PWD" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
 
       - name: Upload firmware artifact
         if: steps.compile.outputs.status == 'success'
         uses: actions/upload-artifact@v7
         with:
-          name: firmware-${{ inputs.version }}
-          path: ${{ steps.organize.outputs.FIRMWARE_PATH }}/*
+          name: firmware-${{ matrix.variant }}
+          path: |
+            ${{ steps.organize.outputs.FIRMWARE_PATH }}/*.bin
+            ${{ steps.organize.outputs.FIRMWARE_PATH }}/sha256sums-${{ matrix.variant }}
+            ${{ steps.organize.outputs.FIRMWARE_PATH }}/BUILD-MANIFEST-${{ matrix.variant }}.txt
+            ${{ steps.organize.outputs.FIRMWARE_PATH }}/build-info-${{ needs.metadata.outputs.file_date }}-${{ matrix.variant }}.tar.gz
 
   release:
-    name: Publish ${{ inputs.version }} firmware
+    name: Publish firmware release
     runs-on: ubuntu-latest
-    needs: build
-    if: needs.build.outputs.status == 'success'
+    needs:
+      - metadata
+      - build
+    if: needs.build.result == 'success' && inputs.variant == 'all'
     permissions:
       contents: write
+    env:
+      FILE_DATE: ${{ needs.metadata.outputs.file_date }}
+      RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
 
     steps:
-      - name: Download firmware artifact
+      - name: Download firmware artifacts
         uses: actions/download-artifact@v8
         with:
-          name: firmware-${{ inputs.version }}
+          pattern: firmware-*
           path: firmware
+          merge-multiple: true
+
+      - name: Prepare release body
+        run: |
+          cd firmware
+          cat sha256sums-* > sha256sums
+
+          release_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          kernel="$(awk -F': ' '/^Kernel:/{print $2; exit}' BUILD-MANIFEST-*.txt)"
+          source_commit="$(awk -F': ' '/^Source commit:/{print $2; exit}' BUILD-MANIFEST-*.txt)"
+          build_version="$(awk -F': ' '/^Build version:/{print $2; exit}' BUILD-MANIFEST-*.txt)"
+
+          link_or_dash() {
+            file="$1"
+            if [ -f "$file" ]; then
+              printf '[%s](%s/%s)' "$2" "$release_url" "$file"
+            else
+              printf '%s' '-'
+            fi
+          }
+
+          {
+            echo "## 下载"
+            echo
+            echo "| 变体 | 适用场景 | sysupgrade | factory |"
+            echo "|:---|:---|:---|:---|"
+            for variant in core core-daed ultimate; do
+              case "$variant" in
+                core) desc="日用主路由" ;;
+                core-daed) desc="daed/eBPF 实验版" ;;
+                ultimate) desc="存储下载增强版" ;;
+              esac
+              sysupgrade="JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${variant}-sysupgrade.bin"
+              factory="JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${variant}-factory.bin"
+              if [ -f "$sysupgrade" ] || [ -f "$factory" ]; then
+                printf '| `%s` | %s | %s | %s |\n' \
+                  "$variant" \
+                  "$desc" \
+                  "$(link_or_dash "$sysupgrade" sysupgrade)" \
+                  "$(link_or_dash "$factory" factory)"
+              fi
+            done
+            echo
+            echo "> 日常升级请使用 sysupgrade；factory 镜像不要通过 pepe2k U-Boot Web UI 刷入。"
+            echo
+            echo "## 构建信息"
+            echo
+            echo "- 日期: ${FILE_DATE}"
+            echo "- 内核: ${kernel:-unknown}"
+            echo "- 固件版本: ${build_version:-unknown}"
+            echo "- 上游: LiBwrt main-nss @ ${source_commit:-unknown}"
+            echo "- 构建记录: ${run_url}"
+            echo
+            echo "校验和见 \`sha256sums\`，完整追溯信息见 \`BUILD-MANIFEST-*.txt\` 和 \`build-info-*.tar.gz\`。"
+          } > RELEASE.md
 
       - name: Publish release
         uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd
         with:
-          name: JDC AX1800 Pro LiBwrt ${{ inputs.version }} · ${{ needs.build.outputs.file_date }}
-          tag: jdc-ax1800-pro-libwrt-${{ needs.build.outputs.file_date }}-${{ inputs.version }}
+          name: JDC AX1800 Pro LiBwrt · ${{ needs.metadata.outputs.file_date }}
+          tag: ${{ needs.metadata.outputs.release_tag }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: firmware/*.bin,firmware/*.txt,firmware/sha256sums,firmware/*.buildinfo
+          artifacts: firmware/*.bin,firmware/sha256sums,firmware/BUILD-MANIFEST-*.txt,firmware/build-info-*.tar.gz
           bodyFile: firmware/RELEASE.md
           commit: ${{ github.sha }}
           artifactErrorsFailBuild: true

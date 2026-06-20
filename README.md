@@ -19,8 +19,8 @@
 - 默认包含 HomeProxy/sing-box，固定 HomeProxy commit 并校验 Makefile SHA256
 - 默认包含 cpufreq、Samba、ZeroTier、ECM、LuCI 文件管理、DiskMan 和挂载支持
 - 提供 `core-daed` 实验变体，用于评估 daed/eBPF 透明代理
-- GitHub Actions 自动编译、上传 artifact、发布 Release
-- Release 附带 manifest、固件 SHA256、上游源码信息和最终配置摘要
+- GitHub Actions 自动编译、上传 artifact，并按日期合并发布 Release
+- Release 附带精简下载表、manifest、固件 SHA256、上游源码信息和最终配置摘要
 - 默认关闭 `ttyd`、packet steering 和 flow offloading，避免与 NSS 路径冲突
 
 ## 固件变体
@@ -44,9 +44,11 @@
 1. Fork 本仓库。
 2. 进入 **Actions**，启用 workflow。
 3. 打开 **Build JDC AX1800 Pro LiBwrt**。
-4. 点击 **Run workflow**，选择 `core`、`core-daed` 或 `ultimate`。
+4. 点击 **Run workflow**，默认选择 `all` 一次构建 `core`、`core-daed` 和 `ultimate`，并发布到同一个日期 Release。
 5. 可选：在 `repo_commit` 填入 LiBwrt 上游 commit hash，用于固定源码版本。
 6. 编译完成后从 workflow artifact 或 Releases 下载固件。
+
+也可以只选择 `core`、`core-daed` 或 `ultimate` 单独构建调试；单变体构建只上传 workflow artifact，不更新 Releases。
 
 Actions 会在编译前校验目标设备和关键软件包，避免配置叠加失败或上游 defconfig 变化导致包被静默移除。
 
