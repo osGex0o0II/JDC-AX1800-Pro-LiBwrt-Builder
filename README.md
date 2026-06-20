@@ -29,13 +29,15 @@
 |:---|:---|:---|
 | `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、文件管理、DiskMan、挂载、USB 存储、CoreMark |
 | `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 daed/luci-app-daed，并启用 BPF/BTF/XDP 相关配置 |
-| `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
+| `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、QuickFile、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
 
 `core-daed.config` 是在 `core.config` 上叠加的实验配置，`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
 
 上游 LiBwrt `main-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。实机 QWRT/iStoreOS 分区布局使用 eMMC GPT，board id 为 `jdcloud,ax1800-pro`，HLOS/HLOS_1 为 12 MiB；构建脚本会在编译阶段把上游 recipe 的 kernel slot 从 6 MiB 调整到 12 MiB，并加入该兼容 ID。
 
 当前上游 LuCI feeds 不提供旧包名 `luci-app-filetransfer`；本项目默认使用 `luci-app-filemanager` 覆盖 LuCI 文件上传、下载和管理场景。
+
+`ultimate` 变体额外集成 `luci-app-quickfile`，用于更完整的网页端文件管理、上传下载和 APK/IPK 安装场景。QuickFile 依赖 nginx 反代 Unix socket，`ultimate` 首启会启用 nginx/quickfile 并关闭 uhttpd，避免两个 Web 服务争用 80 端口。
 
 ## 使用 GitHub Actions 编译
 
