@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   REPO_URL: https://github.com/LiBwrt/openwrt-6.x.git
