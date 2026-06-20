@@ -90,11 +90,12 @@ make -j"$(nproc)"
 
 | 项目 | 值 |
 |:---|:---|
-| 管理地址 | `192.168.1.1` |
+| 管理地址 | `192.168.10.1` |
 | 用户名 | `root` |
 | 密码 | `password`，首次登录后请立即修改 |
 | LuCI 语言 | 简体中文 |
 | 默认主题 | Aurora |
+| 主机名 | `JDC-AX1800-Pro` |
 | TTYD | 已安装，默认关闭 |
 | flow offloading / packet steering | 默认关闭 |
 
@@ -121,16 +122,16 @@ make -j"$(nproc)"
 2. 在「刷写新固件」区域点击「选择文件」，选择 `*-sysupgrade.bin`。
 3. **取消勾选**「保留配置」（Keep settings），避免跨版本配置冲突。
 4. 点击「刷写固件」，确认后等待设备自动重启。
-5. 指示灯变绿后访问 `192.168.1.1`，默认密码为空。
+5. 指示灯变绿后访问 `192.168.10.1`，默认密码为 `password`。
 
 ### 方式二：SSH 命令行升级
 
 ```bash
 # 上传 sysupgrade.bin 到设备 /tmp 目录（可用 SCP、HTTP 下载等方式）
-scp JDC-AX1800-Pro-LiBwrt-*-sysupgrade.bin root@192.168.1.1:/tmp/
+scp JDC-AX1800-Pro-LiBwrt-*-sysupgrade.bin root@192.168.10.1:/tmp/
 
 # 刷入（不保留配置）
-ssh root@192.168.1.1 "sysupgrade -F -n /tmp/JDC-AX1800-Pro-LiBwrt-*-sysupgrade.bin"
+ssh root@192.168.10.1 "sysupgrade -F -n /tmp/JDC-AX1800-Pro-LiBwrt-*-sysupgrade.bin"
 ```
 
 ### 跨版本 / 跨固件升级注意事项
