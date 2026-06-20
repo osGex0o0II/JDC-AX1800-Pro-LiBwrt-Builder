@@ -15,6 +15,51 @@ KERNEL_VER="${KERNEL_VER:-6.12}"
 KERNEL_CFG="target/linux/qualcommax/config-${KERNEL_VER}"
 echo "Detected kernel ${KERNEL_VER} (config: ${KERNEL_CFG})"
 
+# The retail AX1800 Pro layout seen on QWRT/iStoreOS uses 12 MiB HLOS slots
+# and reports board id jdcloud,ax1800-pro. LiBwrt's RE-SS-01 recipe is the
+# closest DTS match, but its default 6 MiB kernel slot is too small for 6.12 NSS.
+JDC_IMAGE_MK="target/linux/qualcommax/image/ipq60xx.mk"
+if [ -f "$JDC_IMAGE_MK" ]; then
+  tmp_image_mk="$(mktemp)"
+  awk '
+    /^define Device\/jdcloud_re-ss-01$/ { in_device = 1 }
+    in_device && /^[[:space:]]*KERNEL_SIZE :=/ {
+      print "\tKERNEL_SIZE := 12288k"
+      kernel_size_seen = 1
+      next
+    }
+    in_device && /^[[:space:]]*DEVICE_PACKAGES :=/ && !compat_seen {
+      print "\tSUPPORTED_DEVICES += jdcloud,ax1800-pro"
+      compat_seen = 1
+    }
+    /^endef$/ && in_device { in_device = 0 }
+    { print }
+    END {
+      if (!kernel_size_seen || !compat_seen) {
+        exit 1
+      }
+    }
+  ' "$JDC_IMAGE_MK" > "$tmp_image_mk" || {
+    rm -f "$tmp_image_mk"
+    echo "ERROR: failed to patch JDCloud RE-SS-01 image recipe" >&2
+    exit 1
+  }
+  cat "$tmp_image_mk" > "$JDC_IMAGE_MK"
+  rm -f "$tmp_image_mk"
+
+  awk '
+    /^define Device\/jdcloud_re-ss-01$/ { in_device = 1 }
+    in_device && /KERNEL_SIZE := 12288k/ { kernel_ok = 1 }
+    in_device && /SUPPORTED_DEVICES \+= jdcloud,ax1800-pro/ { compat_ok = 1 }
+    /^endef$/ && in_device { in_device = 0 }
+    END { exit !(kernel_ok && compat_ok) }
+  ' "$JDC_IMAGE_MK" || {
+    echo "ERROR: JDCloud AX1800 Pro image recipe verification failed" >&2
+    exit 1
+  }
+  echo "Patched JDCloud RE-SS-01 image recipe for AX1800 Pro 12MiB HLOS layout"
+fi
+
 # ── Kernel config fixes ──
 
 # ALLOC_SKB_PAGE_FRAG_DISABLE not covered by upstream config

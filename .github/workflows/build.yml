@@ -219,12 +219,22 @@ jobs:
           }
           require_config CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01
           require_config CONFIG_TARGET_ROOTFS_SQUASHFS
+          require_config CONFIG_PACKAGE_cpufreq
+          require_config CONFIG_PACKAGE_kmod-qca-nss-drv
+          require_config CONFIG_PACKAGE_kmod-qca-nss-ecm
+          require_config CONFIG_PACKAGE_luci-app-samba4
+          require_config CONFIG_PACKAGE_samba4-server
+          require_config CONFIG_PACKAGE_luci-app-zerotier
+          require_config CONFIG_PACKAGE_luci-app-filemanager
+          require_config CONFIG_PACKAGE_luci-app-diskman
+          require_config CONFIG_PACKAGE_block-mount
+          require_config CONFIG_PACKAGE_blockd
+          require_config CONFIG_PACKAGE_automount
           case "${{ inputs.version }}" in
             core)
               require_config CONFIG_PACKAGE_luci-app-homeproxy
               require_config CONFIG_PACKAGE_sing-box
               require_config CONFIG_PACKAGE_kmod-nft-tproxy
-              require_config CONFIG_PACKAGE_luci-app-zerotier
               forbid_config CONFIG_PACKAGE_dockerd
               ;;
             core-daed)
@@ -262,8 +272,6 @@ jobs:
               require_config CONFIG_PACKAGE_sing-box
               require_config CONFIG_PACKAGE_luci-app-aria2
               require_config CONFIG_PACKAGE_aria2
-              require_config CONFIG_PACKAGE_luci-app-diskman
-              require_config CONFIG_PACKAGE_block-mount
               require_config CONFIG_PACKAGE_kmod-fs-ntfs3
               require_config CONFIG_PACKAGE_kmod-usb-storage-uas
               forbid_config CONFIG_PACKAGE_dockerd
@@ -333,7 +341,7 @@ jobs:
           cat sha256sums
           VARIANT_UPPER=$(echo "${{ inputs.version }}" | tr '[:lower:]' '[:upper:]')
           for f in *jdcloud_re-ss-01*squashfs-factory*; do
-            [ -f "$f" ] && mv "$f" "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT_UPPER}-factory.ubi"
+            [ -f "$f" ] && mv "$f" "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT_UPPER}-factory.bin"
           done
           for f in *jdcloud_re-ss-01*squashfs-sysupgrade*; do
             [ -f "$f" ] && mv "$f" "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT_UPPER}-sysupgrade.bin"
@@ -412,7 +420,7 @@ jobs:
           name: JDC AX1800 Pro LiBwrt ${{ inputs.version }} · ${{ needs.build.outputs.file_date }}
           tag: jdc-ax1800-pro-libwrt-${{ needs.build.outputs.file_date }}-${{ inputs.version }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: firmware/*.ubi,firmware/*.bin,firmware/*.txt,firmware/sha256sums,firmware/*.buildinfo
+          artifacts: firmware/*.bin,firmware/*.txt,firmware/sha256sums,firmware/*.buildinfo
           bodyFile: firmware/RELEASE.md
           commit: ${{ github.sha }}
           artifactErrorsFailBuild: true
