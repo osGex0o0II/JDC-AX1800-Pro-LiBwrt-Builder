@@ -248,12 +248,13 @@ net.ipv4.tcp_congestion_control=bbr
 固件内置 `/usr/sbin/jdc-healthcheck`，会检查：
 
 - 默认路由
-- 本地 dnsmasq 解析
+- dnsmasq 进程状态
+- 系统解析路径
 - HomeProxy/sing-box 状态
 - daed 状态
 - 可用内存
 
-`core`、`core-daed` 和 `ultimate` 变体会通过 cron 定期运行健康检查。脚本只做服务级恢复和日志记录，不会自动重启整机。
+`core`、`core-daed` 和 `ultimate` 变体会通过 cron 定期运行健康检查。脚本只做服务级恢复和日志记录，不会自动重启整机；DNS 查询失败只记录日志，不会因为上游解析瞬断而直接重启 dnsmasq。
 
 ## 项目结构
 

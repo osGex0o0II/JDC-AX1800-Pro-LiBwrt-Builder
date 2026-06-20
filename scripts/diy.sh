@@ -155,6 +155,21 @@ if [ "$VARIANT" = "core-daed" ]; then
     exit 1
   fi
   echo "daed Makefiles integrity verified (SHA256 match)"
+
+  if ! grep -q 'DAE_LOCATION_ASSET' daed/files/daed.init; then
+    sed -i '/procd_open_instance/a\\tprocd_set_param env DAE_LOCATION_ASSET="/usr/share/v2ray"' daed/files/daed.init
+  fi
+  sed -i '/sed -i.*DAE_LOCATION_ASSET.*\/etc\/init.d\/daed/d' luci-app-daed/root/etc/init.d/luci_daed
+  grep -q 'DAE_LOCATION_ASSET="/usr/share/v2ray"' daed/files/daed.init || {
+    echo "ERROR: failed to patch daed init environment" >&2
+    exit 1
+  }
+  ! grep -q 'sed -i.*DAE_LOCATION_ASSET.*\/etc\/init.d\/daed' luci-app-daed/root/etc/init.d/luci_daed || {
+    echo "ERROR: failed to remove runtime daed init mutation" >&2
+    exit 1
+  }
+  echo "Patched daed init to avoid runtime init-script mutation"
+
   cd "$OLDPWD" || exit 1
 
   refresh_package_metadata

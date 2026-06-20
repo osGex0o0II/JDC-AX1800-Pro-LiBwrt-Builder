@@ -41,6 +41,11 @@ has_default_route() {
   ip route show default 2>/dev/null | grep -q .
 }
 
+has_dns_server() {
+  awk '$1 == "nameserver" { found = 1; exit } END { exit !found }' \
+    /etc/resolv.conf /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null
+}
+
 check_memory() {
   mem_available="$(awk '/MemAvailable/ {print $2; exit}' /proc/meminfo 2>/dev/null)"
 
@@ -49,17 +54,33 @@ check_memory() {
   fi
 }
 
+check_dnsmasq() {
+  if [ ! -x /etc/init.d/dnsmasq ] || ! /etc/init.d/dnsmasq enabled >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! pidof dnsmasq >/dev/null 2>&1; then
+    log "dnsmasq is enabled but not running"
+    restart_service dnsmasq
+  fi
+}
+
 check_dns() {
   failed=0
 
+  if ! has_dns_server; then
+    log "dns lookup skipped: no nameserver configured"
+    return 0
+  fi
+
   for host in www.baidu.com openwrt.org; do
-    if ! nslookup "$host" 127.0.0.1 >/dev/null 2>&1; then
+    if ! nslookup "$host" >/dev/null 2>&1; then
       log "dns lookup failed: ${host}"
       failed=1
     fi
   done
 
-  [ "$failed" -eq 0 ] || restart_service dnsmasq
+  [ "$failed" -eq 0 ] || log "dns lookup failed through system resolver"
 }
 
 check_proxy() {
@@ -87,6 +108,7 @@ check_daed() {
 check_memory
 
 if has_default_route; then
+  check_dnsmasq
   check_dns
   check_proxy
   check_daed
