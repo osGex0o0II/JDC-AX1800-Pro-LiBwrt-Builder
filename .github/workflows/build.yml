@@ -210,18 +210,54 @@ jobs:
           }
           forbid_config() {
             symbol="$1"
-            if grep -q "^${symbol}=y$" .config; then
-              echo "::error::Forbidden config is enabled: ${symbol}=y" >&2
+            if grep -Eq "^${symbol}=(y|m)$" .config; then
+              echo "::error::Forbidden config is enabled: ${symbol}" >&2
               grep -E "^(# )?${symbol}(=| is not set)" .config >&2 || true
               exit 1
             fi
             echo "OK: ${symbol} is not enabled"
           }
+          require_recipe_patch() {
+            image_mk="target/linux/qualcommax/image/ipq60xx.mk"
+            awk '
+              /^define Device\/jdcloud_re-ss-01$/ { in_device = 1 }
+              in_device && /KERNEL_SIZE := 12288k/ { kernel_ok = 1 }
+              in_device && /SUPPORTED_DEVICES \+= jdcloud,ax1800-pro/ { compat_ok = 1 }
+              /^endef$/ && in_device { in_device = 0 }
+              END { exit !(kernel_ok && compat_ok) }
+            ' "$image_mk" || {
+              echo "::error::JDCloud AX1800 Pro image recipe patch is missing or incomplete" >&2
+              sed -n '/define Device\/jdcloud_re-ss-01/,/endef/p' "$image_mk" >&2
+              exit 1
+            }
+            echo "OK: JDCloud image recipe patched for 12MiB HLOS and ax1800-pro compat"
+          }
           require_config CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01
           require_config CONFIG_TARGET_ROOTFS_SQUASHFS
+          require_config CONFIG_IPQ_MEM_PROFILE_512
+          require_config CONFIG_NSS_MEM_PROFILE_MEDIUM
+          require_config CONFIG_NSS_FIRMWARE_VERSION_12_2
+          require_config CONFIG_PACKAGE_nss-firmware-ipq60xx
+          require_config CONFIG_NSS_DRV_IGS_ENABLE
+          require_config CONFIG_NSS_DRV_IPV6_ENABLE
+          require_config CONFIG_NSS_DRV_L2TP_ENABLE
+          require_config CONFIG_NSS_DRV_LAG_ENABLE
+          require_config CONFIG_NSS_DRV_MAPT_ENABLE
+          require_config CONFIG_NSS_DRV_PPPOE_ENABLE
+          require_config CONFIG_NSS_DRV_PPTP_ENABLE
+          require_config CONFIG_NSS_DRV_SHAPER_ENABLE
+          require_config CONFIG_NSS_DRV_VIRT_IF_ENABLE
           require_config CONFIG_PACKAGE_cpufreq
           require_config CONFIG_PACKAGE_kmod-qca-nss-drv
           require_config CONFIG_PACKAGE_kmod-qca-nss-ecm
+          require_config CONFIG_PACKAGE_kmod-qca-nss-drv-igs
+          require_config CONFIG_PACKAGE_kmod-qca-nss-drv-l2tpv2
+          require_config CONFIG_PACKAGE_kmod-qca-nss-drv-lag-mgr
+          require_config CONFIG_PACKAGE_kmod-qca-nss-drv-map-t
+          require_config CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe
+          require_config CONFIG_PACKAGE_kmod-qca-nss-drv-pptp
+          require_config CONFIG_PACKAGE_kmod-qca-nss-drv-qdisc
+          require_config CONFIG_PACKAGE_kmod-qca-mcs
           require_config CONFIG_PACKAGE_luci-app-samba4
           require_config CONFIG_PACKAGE_samba4-server
           require_config CONFIG_PACKAGE_luci-app-zerotier
@@ -230,10 +266,31 @@ jobs:
           require_config CONFIG_PACKAGE_block-mount
           require_config CONFIG_PACKAGE_blockd
           require_config CONFIG_PACKAGE_automount
+          forbid_config CONFIG_PACKAGE_kmod-ath11k
+          forbid_config CONFIG_PACKAGE_kmod-ath11k-ahb
+          forbid_config CONFIG_PACKAGE_kmod-ath11k-pci
+          forbid_config CONFIG_PACKAGE_ath11k-firmware-ipq6018
+          forbid_config CONFIG_PACKAGE_kmod-cfg80211
+          forbid_config CONFIG_PACKAGE_kmod-mac80211
+          forbid_config CONFIG_PACKAGE_wpad-openssl
+          require_recipe_patch
           case "${{ inputs.version }}" in
             core)
+              test -f feeds/luci/applications/luci-app-homeproxy/Makefile || {
+                echo "::error::Pinned HomeProxy source was not injected at feeds/luci/applications/luci-app-homeproxy" >&2
+                exit 1
+              }
+              test -L package/feeds/luci/luci-app-homeproxy || {
+                echo "::error::HomeProxy feed package symlink is missing" >&2
+                exit 1
+              }
+              grep -q '^LUCI_TITLE:=The modern ImmortalWrt proxy platform' feeds/luci/applications/luci-app-homeproxy/Makefile || {
+                echo "::error::Unexpected HomeProxy Makefile after injection" >&2
+                exit 1
+              }
               require_config CONFIG_PACKAGE_luci-app-homeproxy
               require_config CONFIG_PACKAGE_sing-box
+              require_config CONFIG_PACKAGE_kmod-nft-socket
               require_config CONFIG_PACKAGE_kmod-nft-tproxy
               forbid_config CONFIG_PACKAGE_dockerd
               ;;
@@ -268,8 +325,17 @@ jobs:
               forbid_config CONFIG_PACKAGE_dockerd
               ;;
             ultimate)
+              test -f feeds/luci/applications/luci-app-homeproxy/Makefile || {
+                echo "::error::Pinned HomeProxy source was not injected at feeds/luci/applications/luci-app-homeproxy" >&2
+                exit 1
+              }
+              test -L package/feeds/luci/luci-app-homeproxy || {
+                echo "::error::HomeProxy feed package symlink is missing" >&2
+                exit 1
+              }
               require_config CONFIG_PACKAGE_luci-app-homeproxy
               require_config CONFIG_PACKAGE_sing-box
+              require_config CONFIG_PACKAGE_kmod-nft-socket
               require_config CONFIG_PACKAGE_luci-app-aria2
               require_config CONFIG_PACKAGE_aria2
               require_config CONFIG_PACKAGE_kmod-fs-ntfs3

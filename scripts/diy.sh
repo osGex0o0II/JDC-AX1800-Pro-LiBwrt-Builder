@@ -9,6 +9,11 @@ VARIANT="${1:-core}"
 OPENWRT_DIR="${OPENWRT_PATH:-openwrt}"
 cd "$OPENWRT_DIR"
 
+refresh_package_metadata() {
+  rm -f tmp/.packageinfo tmp/.packagedeps tmp/.packageauxvars tmp/.packageusergroup tmp/.config-package.in tmp/.config-feeds.in
+  rm -f tmp/info/.files-packageinfo.* tmp/info/.packageinfo-*
+}
+
 # ── Dynamic kernel version detection ──
 KERNEL_VER="$(grep -E '^KERNEL_PATCHVER:=' target/linux/qualcommax/Makefile 2>/dev/null | sed 's/.*:=//;s/^[[:space:]]*//')"
 KERNEL_VER="${KERNEL_VER:-6.12}"
@@ -152,6 +157,7 @@ if [ "$VARIANT" = "core-daed" ]; then
   echo "daed Makefiles integrity verified (SHA256 match)"
   cd "$OLDPWD" || exit 1
 
+  refresh_package_metadata
   exit 0
 fi
 
@@ -169,8 +175,10 @@ if [ -n "${GITHUB_ENV:-}" ]; then
   echo "HOMEPROXY_COMMIT=${HOMEPROXY_COMMIT}" >> "$GITHUB_ENV"
 fi
 
-git clone https://github.com/immortalwrt/homeproxy package/luci-app-homeproxy
-cd package/luci-app-homeproxy
+git clone https://github.com/immortalwrt/homeproxy feeds/luci/applications/luci-app-homeproxy
+mkdir -p package/feeds/luci
+ln -s ../../../feeds/luci/applications/luci-app-homeproxy package/feeds/luci/luci-app-homeproxy
+cd feeds/luci/applications/luci-app-homeproxy
 git -c advice.detachedHead=false checkout "$HOMEPROXY_COMMIT"
 
 COMPUTED_SHA256="$(sha256sum Makefile 2>/dev/null | awk '{print $1}')"
@@ -183,4 +191,5 @@ fi
 echo "HomeProxy Makefile integrity verified (SHA256 match)"
 cd "$OLDPWD" || exit 1
 
+refresh_package_metadata
 exit 0
