@@ -6,6 +6,8 @@
 [![License](https://img.shields.io/github/license/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder)](LICENSE)
 
 > 本项目面向有经验的 OpenWrt/LiBwrt 用户。刷机、改分区和 U-Boot 操作均有变砖风险，执行前请确认设备型号、备份原厂分区，并准备好救砖手段。
+>
+> **⚠️ factory 镜像不能通过 pepe2k U-Boot Web UI 刷入！** 详见下方[刷机与升级](#刷机与升级)章节。
 
 ## 特性
 
@@ -98,18 +100,130 @@ make -j"$(nproc)"
 
 ## 刷机与升级
 
-生成的固件通常包含：
+> **⚠️ 重要：factory 镜像不能通过 pepe2k U-Boot Web UI 刷入！**
+>
+> JDC AX1800 Pro 的 pepe2k U-Boot Web UI 会将 factory 镜像写入 `0:HLOS` 分区（仅 12 MB），
+> 而本固件 factory 镜像约 57 MB，**超出分区大小会导致数据溢出、分区表损坏、设备变砖**。
+> 请严格按下方说明选择刷机方式。
 
-- `*-factory.bin`：用于从 U-Boot 或特定过渡环境首次刷入 eMMC 布局。
-- `*-sysupgrade.bin`：用于已运行 OpenWrt/LiBwrt 时升级。
+### 生成的固件文件
 
-已运行 OpenWrt/LiBwrt 的设备可通过 LuCI「系统 - 备份/升级」上传 `sysupgrade.bin`，或通过 SSH 执行：
+| 文件 | 用途 | 刷入方式 |
+|:---|:---|:---|
+| `*-factory.bin` | 首次刷入 / 全新 U-Boot 恢复 | 仅限 **TTL 串口 + TFTP**（见救砖章节） |
+| `*-sysupgrade.bin` | 已运行 OpenWrt/LiBwrt 时升级 | LuCI Web 界面 或 `sysupgrade` 命令 |
+
+### 方式一：LuCI Web 界面升级（推荐）
+
+适用于已运行 QWRT / iStoreOS / OpenWrt / LiBwrt 的设备。
+
+1. 登录 LuCI → **系统 → 备份/升级**（System → Backup/Flash Firmware）。
+2. 在「刷写新固件」区域点击「选择文件」，选择 `*-sysupgrade.bin`。
+3. **取消勾选**「保留配置」（Keep settings），避免跨版本配置冲突。
+4. 点击「刷写固件」，确认后等待设备自动重启。
+5. 指示灯变绿后访问 `192.168.1.1`，默认密码为空。
+
+### 方式二：SSH 命令行升级
 
 ```bash
-sysupgrade -n /tmp/JDC-AX1800-Pro-LiBwrt-*-sysupgrade.bin
+# 上传 sysupgrade.bin 到设备 /tmp 目录（可用 SCP、HTTP 下载等方式）
+scp JDC-AX1800-Pro-LiBwrt-*-sysupgrade.bin root@192.168.1.1:/tmp/
+
+# 刷入（不保留配置）
+ssh root@192.168.1.1 "sysupgrade -F -n /tmp/JDC-AX1800-Pro-LiBwrt-*-sysupgrade.bin"
 ```
 
-跨大版本、跨分区布局、跨第三方固件升级时，建议不要保留旧配置。首次刷机和 U-Boot 相关操作请以你当前设备分区布局和救砖资料为准。
+### 跨版本 / 跨固件升级注意事项
+
+- 跨大版本、跨分区布局、跨第三方固件升级时，**不要保留旧配置**（使用 `-n`）。
+- 从 QWRT/iStoreOS 升级到 LiBwrt 属于跨固件，建议先在 Web 界面取消「保留配置」。
+- 首次从第三方固件刷入时，建议使用 `sysupgrade.bin` 而非 `factory.bin`。
+
+## 救砖指南
+
+### 分区布局说明
+
+JDC AX1800 Pro 使用 eMMC GPT 分区，关键分区如下：
+
+| 分区 | 标签 | 默认大小 | 说明 |
+|:---|:---|:---|:---|
+| mmcblk0p13 | 0:APPSBL | 640 KB | pepe2k U-Boot |
+| mmcblk0p14 | 0:APPSBL_1 | 640 KB | U-Boot 备份 |
+| mmcblk0p16 | 0:HLOS | **12 MB** | 内核（FIT 镜像） |
+| mmcblk0p17 | 0:HLOS_1 | **12 MB** | 内核备份 |
+| mmcblk0p18 | rootfs | 2 GB | 根文件系统（squashfs） |
+| mmcblk0p20 | rootfs_1 | 60 MB | 根文件系统备份 |
+| mmcblk0p22 | rootfs_data | 200 MB | 数据分区 |
+
+> **factory 镜像约 57 MB，超出 HLOS 分区 12 MB 限制。**
+> 通过 U-Boot Web UI 刷 factory 镜像会写入 HLOS 分区，溢出数据会破坏相邻分区导致变砖。
+> **只能通过 TTL 串口 + TFTP 刷入 factory 镜像。**
+
+### 变砖判断
+
+| 现象 | 可能原因 | 恢复方式 |
+|:---|:---|:---|
+| 红灯常亮，无法访问 Web | 分区数据损坏，U-Boot 存活 | 重新进入 U-Boot 刷固件 |
+| 红灯闪烁后蓝灯，Web 不通 | U-Boot 损坏或网卡不兼容 | TTL 刷 U-Boot + TFTP 刷固件 |
+| 完全无灯，TTL 无输出 | 硬件损坏或 eMMC 损坏 | 9008 EDL 模式刷机（需拆机） |
+
+### 恢复方式一：U-Boot Web UI 重新刷入（仅 U-Boot 存活时）
+
+1. 断电，按住路由器背面 **Reset** 按钮不放。
+2. 插电，持续按住约 10-15 秒，观察指示灯从红灯变为蓝灯后松开。
+3. 电脑设置静态 IP：`192.168.1.2`，子网掩码 `255.255.255.0`。
+4. 浏览器访问 `http://192.168.1.1` 进入 U-Boot Web UI。
+5. **选择 `*-sysupgrade.bin` 文件刷入**（不要选择 factory 镜像）。
+6. 等待指示灯变绿，系统启动完成。
+
+### 恢复方式二：TTL 串口 + TFTP 刷入 factory 镜像
+
+需要准备：
+- CH340G USB 转 TTL 适配器
+- 三根公对母杜邦线
+- 拆机工具
+- Tftpd64 软件
+
+**步骤：**
+
+1. **拆机**，找到主板上的 TTL 串口（TX/RX/GND）。
+2. **连接 TTL**，使用 MobaXterm 或 PuTTY 打开串口终端（波特率 115200）。
+3. **通电**，在终端中快速按 `Enter` 中断启动，进入 `IPQ6018#` 命令行。
+4. **设置电脑 IP** 为 `192.168.10.1`，启动 Tftpd64。
+5. **通过 TFTP 刷入 U-Boot 和固件**：
+
+```bash
+# 刷入 U-Boot（替换为实际文件名）
+tftpboot uboot.bin && flash 0:APPSBL && flash 0:APPSBL_1
+
+# 刷入 factory 镜像到 HLOS 分区
+tftpboot factory.bin && flash 0:HLOS
+```
+
+6. 重启设备，进入新系统。
+
+### 恢复方式三：9008 EDL 模式（硬砖终极方案）
+
+当 U-Boot 也损坏时，需要拆机短接进入高通 9008 EDL 模式。
+
+1. 拆机，找到主板背面的**启动电阻焊盘**（靠近 TTL 接口）。
+2. 用镊子短接焊盘，同时插入电源，等 2 秒后松开。
+3. 电脑连接路由器 USB 口，设备管理器应显示 `Qualcomm HS-USB QDLoader 9008`。
+4. 安装高通 9008 驱动，使用专用线刷工具重写固件。
+
+详细教程参考：
+- [保姆级救砖指南](https://blog.csdn.net/garlic/article/details/154469720)
+- [USB 救砖教程](https://www.scribd.com/document/854251949/)
+
+### 备份建议
+
+刷机前务必备份 eMMC 前 1111 MB（包含分区表和原厂分区）：
+
+```bash
+dd if=/dev/mmcblk0 bs=1M count=1111 of=/tmp/ax1800-backup.img
+```
+
+通过 SCP 或挂载的 SMB 共享将备份文件保存到电脑。
 
 ## 性能与稳定性说明
 
