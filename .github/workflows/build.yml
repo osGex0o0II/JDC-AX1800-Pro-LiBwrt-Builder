@@ -460,7 +460,7 @@ jobs:
 
       - name: Upload firmware artifact
         if: steps.compile.outputs.status == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: firmware-${{ inputs.version }}
           path: ${{ steps.organize.outputs.FIRMWARE_PATH }}/*
@@ -475,7 +475,7 @@ jobs:
 
     steps:
       - name: Download firmware artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: firmware-${{ inputs.version }}
           path: firmware
