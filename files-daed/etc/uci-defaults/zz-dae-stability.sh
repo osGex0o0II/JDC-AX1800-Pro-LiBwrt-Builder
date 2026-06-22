@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Core-DAED defaults: daed remains installed but disabled until configured.
+# Core-DAED defaults: dae remains installed but disabled until configured.
 uci -q set dhcp.@dnsmasq[0].noresolv='1'
 uci -q set dhcp.@dnsmasq[0].localservice='1'
 uci -q set dhcp.@dnsmasq[0].ednspacket_max='1232'
@@ -12,8 +12,8 @@ uci commit system
 
 [ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd disable 2>/dev/null || true
 [ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd stop 2>/dev/null || true
-[ -x /etc/init.d/daed ] && /etc/init.d/daed disable 2>/dev/null || true
-[ -x /etc/init.d/daed ] && /etc/init.d/daed stop 2>/dev/null || true
+[ -x /etc/init.d/dae ] && /etc/init.d/dae disable 2>/dev/null || true
+[ -x /etc/init.d/dae ] && /etc/init.d/dae stop 2>/dev/null || true
 
 CRON_FILE="/etc/crontabs/root"
 CRON_LINE="*/5 * * * * /usr/sbin/jdc-healthcheck >/dev/null 2>&1"

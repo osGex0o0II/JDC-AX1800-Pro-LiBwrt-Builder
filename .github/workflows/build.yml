@@ -331,20 +331,21 @@ jobs:
               forbid_config CONFIG_PACKAGE_dockerd
               ;;
             core-daed)
-              test -f package/dae/daed/Makefile
-              test -f package/dae/luci-app-daed/Makefile
+              test -f package/dae/dae/Makefile
+              test ! -e package/dae/luci-app-dae
               test ! -e package/feeds/packages/daed
+              test ! -e package/feeds/packages/dae
               test ! -e package/feeds/luci/luci-app-daed
-              echo "daed package source: package/dae/daed"
-              echo "luci-app-daed package source: package/dae/luci-app-daed"
-              grep -q '^PKG_NAME:=daed$' package/dae/daed/Makefile
-              grep -q '^PKG_NAME:=luci-app-daed$' package/dae/luci-app-daed/Makefile
-              grep -q '^NODE_VERSION:=v24.12.0$' package/dae/daed/Makefile
-              node_version="$(sed -n 's/^NODE_VERSION:=//p' package/dae/daed/Makefile)"
-              curl -fsI --retry 3 --connect-timeout 10 "https://nodejs.org/dist/${node_version}/node-${node_version}-linux-x64.tar.xz" >/dev/null
-              curl -fsIL --retry 3 --connect-timeout 10 "https://github.com/QiuSimons/luci-app-dae/raw/refs/heads/kix/dae/pprof/default.pgo" >/dev/null
-              require_config CONFIG_PACKAGE_luci-app-daed
-              require_config CONFIG_PACKAGE_daed
+              test ! -e package/feeds/luci/luci-app-dae
+              echo "dae package source: package/dae/dae"
+              grep -q '^PKG_NAME:=dae$' package/dae/dae/Makefile
+              grep -q '^PKG_VERSION:=0.4.0rc1$' package/dae/dae/Makefile
+              grep -q '^define Package/dae-geoip$' package/dae/dae/Makefile
+              grep -q '^define Package/dae-geosite$' package/dae/dae/Makefile
+              curl -fsIL --retry 3 --connect-timeout 10 "https://github.com/daeuniverse/dae/releases/download/v0.4.0rc1/dae-full-src.zip" >/dev/null
+              require_config CONFIG_PACKAGE_dae
+              require_config CONFIG_PACKAGE_dae-geoip
+              require_config CONFIG_PACKAGE_dae-geosite
               require_config CONFIG_BPF_TOOLCHAIN_HOST
               require_config CONFIG_KERNEL_CGROUP_BPF
               require_config CONFIG_KERNEL_BPF_EVENTS
@@ -355,6 +356,10 @@ jobs:
               require_config CONFIG_PACKAGE_kmod-xdp-sockets-diag
               require_config CONFIG_PACKAGE_v2ray-geoip
               require_config CONFIG_PACKAGE_v2ray-geosite
+              forbid_config CONFIG_PACKAGE_daed
+              forbid_config CONFIG_PACKAGE_luci-app-daed
+              forbid_config CONFIG_PACKAGE_luci-app-dae
+              forbid_config CONFIG_DAED_USE_KERNEL_BTF
               forbid_config CONFIG_DAED_USE_VMLINUX_BTF
               forbid_config CONFIG_PACKAGE_luci-app-homeproxy
               forbid_config CONFIG_PACKAGE_sing-box
@@ -455,7 +460,7 @@ jobs:
             echo "DIY script SHA256: $(sha256sum "${GITHUB_WORKSPACE}/scripts/diy.sh" | awk '{print $1}')"
             echo "Aurora commit: ${AURORA_COMMIT:-unknown}"
             echo "HomeProxy commit: ${HOMEPROXY_COMMIT:-not-included}"
-            echo "DAED commit: ${DAED_COMMIT:-not-included}"
+            echo "DAE commit: ${DAE_COMMIT:-not-included}"
             echo
             echo "Firmware SHA256:"
             cat "sha256sums-${VARIANT}"
@@ -527,7 +532,7 @@ jobs:
             for variant in core core-daed ultimate; do
               case "$variant" in
                 core) desc="日用主路由" ;;
-                core-daed) desc="daed/eBPF 实验版" ;;
+                core-daed) desc="dae/eBPF 文件配置版" ;;
                 ultimate) desc="存储下载增强版" ;;
               esac
               sysupgrade="JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${variant}-sysupgrade.bin"

@@ -18,7 +18,7 @@
 - Aurora LuCI 主题，固定上游 commit
 - 默认包含 HomeProxy/sing-box，固定 HomeProxy commit 并校验 Makefile SHA256
 - 默认包含 cpufreq、Samba、ZeroTier、ECM、QuickFile、DiskMan 和挂载支持
-- 提供 `core-daed` 实验变体，用于评估 daed/eBPF 透明代理
+- 提供 `core-daed` 实验变体，用于评估 dae/eBPF 透明代理，默认走 `config.dae` 文件配置
 - GitHub Actions 自动编译、上传 artifact，并按日期合并发布 Release
 - Release 附带精简下载表、manifest、固件 SHA256、上游源码信息和最终配置摘要
 - 默认关闭 `ttyd`、packet steering 和 flow offloading，避免与 NSS 路径冲突
@@ -28,10 +28,10 @@
 | 变体 | 定位 | 主要内容 |
 |:---|:---|:---|
 | `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、QuickFile、DiskMan、挂载、USB 存储、CoreMark |
-| `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 daed/luci-app-daed，并启用 BPF/BTF/XDP 相关配置；文件管理同样使用 QuickFile |
+| `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 dae、dae-geoip、dae-geosite，不包含 dae/daed 的 LuCI 图形界面，并启用 BPF/BTF/XDP 相关配置；文件管理同样使用 QuickFile |
 | `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、QuickFile、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
 
-`core-daed.config` 是在 `core.config` 上叠加的实验配置，`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
+`core-daed.config` 是在 `core.config` 上叠加的实验配置，变体名为兼容既有 artifact 命名而保留；当前实际代理包为纯 `dae`，通过 `/etc/dae/config.dae` 和 `/etc/config/dae` 管理。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
 
 上游 LiBwrt `main-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。实机 QWRT/iStoreOS 分区布局使用 eMMC GPT，board id 为 `jdcloud,ax1800-pro`，HLOS/HLOS_1 为 12 MiB；构建脚本会在编译阶段把上游 recipe 的 kernel slot 从 6 MiB 调整到 12 MiB，并加入该兼容 ID。
 
@@ -76,7 +76,7 @@ cp -a ../files/. files/
 # core/ultimate 复制 HomeProxy 默认项
 cp -a ../files-homeproxy/. files/
 
-# core-daed 需要额外复制 daed 默认项
+# core-daed 需要额外复制 dae 默认项
 # cp -a ../files-daed/. files/
 
 # ultimate 需要额外复制存储下载增强默认项
@@ -255,7 +255,7 @@ net.ipv4.tcp_congestion_control=bbr
 - dnsmasq 进程状态
 - 系统解析路径
 - HomeProxy/sing-box 状态
-- daed 状态
+- dae 状态
 - 可用内存
 
 `core`、`core-daed` 和 `ultimate` 变体会通过 cron 定期运行健康检查。脚本只做服务级恢复和日志记录，不会自动重启整机；DNS 查询失败只记录日志，不会因为上游解析瞬断而直接重启 dnsmasq。
@@ -269,11 +269,11 @@ net.ipv4.tcp_congestion_control=bbr
 │   └── cleanup.yml        # 清理旧 workflow runs 和 releases
 ├── configs/
 │   ├── core.config        # 基础配置
-│   ├── core-daed.config   # daed/eBPF 实验配置
+│   ├── core-daed.config   # dae/eBPF 实验配置
 │   └── ultimate.config    # ultimate 存储下载增强配置
 ├── files/                 # 所有变体共用 overlay
 ├── files-homeproxy/       # HomeProxy/sing-box 默认项
-├── files-daed/            # daed 默认项
+├── files-daed/            # dae 默认项
 ├── files-ultimate/        # ultimate 专属 overlay
 ├── scripts/
 │   ├── diy.sh             # 编译前自定义
@@ -288,9 +288,9 @@ net.ipv4.tcp_congestion_control=bbr
 ## 自定义建议
 
 - 修改包选择时优先编辑 `configs/*.config`，不要直接改 Actions 里的包列表。
-- 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，daed 放 `files-daed/`，ultimate 存储下载增强相关放 `files-ultimate/`。
+- 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，dae 放 `files-daed/`，ultimate 存储下载增强相关放 `files-ultimate/`。
 - 更新 HomeProxy commit 时，同步更新 `HOMEPROXY_MAKEFILE_SHA256`。
-- 更新 daed 时，同步更新 `DAED_COMMIT`，并优先在 `core-daed` 变体验证。
+- 更新 dae 时，同步更新 `DAE_COMMIT` 及相关 SHA256，并优先在 `core-daed` 变体验证。
 - 更新第三方 GitHub Actions 时，建议继续固定到具体 commit SHA。
 
 ## 致谢

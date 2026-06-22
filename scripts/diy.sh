@@ -162,60 +162,76 @@ cd "$OLDPWD" || exit 1
 inject_quickfile
 
 if [ "$VARIANT" = "core-daed" ]; then
-  echo "Injecting luci-app-daed (pinned commit)"
+  echo "Injecting dae (pinned commit, no LuCI UI)"
 
   rm -rf \
     package/dae \
     package/daed \
     package/luci-app-daed \
+    package/luci-app-dae \
     package/feeds/packages/dae \
     package/feeds/packages/daed \
-    package/feeds/luci/luci-app-daed
+    package/feeds/luci/luci-app-daed \
+    package/feeds/luci/luci-app-dae
 
-  DAED_COMMIT="b2ee25e12ecadea724fa6f5b02e6c8ddd88e9119"
-  DAED_MAKEFILE_SHA256="6d63d892828d9477b6a1bb5f9770149ce176625432e5b987fdb1639ce4634e14"
-  LUCI_APP_DAED_MAKEFILE_SHA256="1ce969ca124fe040aa3b80b03f17b44444c9d7cda85e9a4cd7d08e794031e2f9"
+  DAE_COMMIT="27213747d9fe82645dd3c16f07c0da53b4b34b97"
+  DAE_MAKEFILE_SHA256="4dab7b9fce7da10970b8ae4ee2794fc98401e169a8f1847f4768168f1cf77c31"
+  DAE_INIT_SHA256="218af1544f31c79fc802bd473b1f507d98c50732edcde0888c7b8973b1d0c56c"
+  DAE_CONFIG_SHA256="87641bee9900c787fd23e96d08feb400f14b8a8ac13e57296738f2d823fe606a"
   if [ -n "${GITHUB_ENV:-}" ]; then
-    echo "DAED_COMMIT=${DAED_COMMIT}" >> "$GITHUB_ENV"
+    echo "DAE_COMMIT=${DAE_COMMIT}" >> "$GITHUB_ENV"
   fi
 
   mkdir -p package/dae
   git -C package/dae init
-  git -C package/dae remote add origin https://github.com/QiuSimons/luci-app-daed.git
-  git -C package/dae fetch --depth=1 origin "$DAED_COMMIT"
+  git -C package/dae remote add origin https://github.com/sbwml/luci-app-dae.git
+  git -C package/dae fetch --depth=1 origin "$DAE_COMMIT"
   git -C package/dae -c advice.detachedHead=false checkout FETCH_HEAD
   cd package/dae
 
-  DAED_COMPUTED_SHA256="$(sha256sum daed/Makefile 2>/dev/null | awk '{print $1}')"
-  if [ "$DAED_COMPUTED_SHA256" != "$DAED_MAKEFILE_SHA256" ]; then
-    echo "ERROR: daed Makefile SHA256 mismatch!" >&2
-    echo "  Expected: ${DAED_MAKEFILE_SHA256}" >&2
-    echo "  Got:      ${DAED_COMPUTED_SHA256:-<file not found>}" >&2
+  DAE_COMPUTED_SHA256="$(sha256sum dae/Makefile 2>/dev/null | awk '{print $1}')"
+  if [ "$DAE_COMPUTED_SHA256" != "$DAE_MAKEFILE_SHA256" ]; then
+    echo "ERROR: dae Makefile SHA256 mismatch!" >&2
+    echo "  Expected: ${DAE_MAKEFILE_SHA256}" >&2
+    echo "  Got:      ${DAE_COMPUTED_SHA256:-<file not found>}" >&2
     exit 1
   fi
 
-  LUCI_APP_DAED_COMPUTED_SHA256="$(sha256sum luci-app-daed/Makefile 2>/dev/null | awk '{print $1}')"
-  if [ "$LUCI_APP_DAED_COMPUTED_SHA256" != "$LUCI_APP_DAED_MAKEFILE_SHA256" ]; then
-    echo "ERROR: luci-app-daed Makefile SHA256 mismatch!" >&2
-    echo "  Expected: ${LUCI_APP_DAED_MAKEFILE_SHA256}" >&2
-    echo "  Got:      ${LUCI_APP_DAED_COMPUTED_SHA256:-<file not found>}" >&2
+  DAE_INIT_COMPUTED_SHA256="$(sha256sum dae/files/dae.init 2>/dev/null | awk '{print $1}')"
+  if [ "$DAE_INIT_COMPUTED_SHA256" != "$DAE_INIT_SHA256" ]; then
+    echo "ERROR: dae init SHA256 mismatch!" >&2
+    echo "  Expected: ${DAE_INIT_SHA256}" >&2
+    echo "  Got:      ${DAE_INIT_COMPUTED_SHA256:-<file not found>}" >&2
     exit 1
   fi
-  echo "daed Makefiles integrity verified (SHA256 match)"
 
-  if ! grep -q 'DAE_LOCATION_ASSET' daed/files/daed.init; then
-    sed -i '/procd_open_instance/a\\tprocd_set_param env DAE_LOCATION_ASSET="/usr/share/v2ray"' daed/files/daed.init
+  DAE_CONFIG_COMPUTED_SHA256="$(sha256sum dae/files/dae.config 2>/dev/null | awk '{print $1}')"
+  if [ "$DAE_CONFIG_COMPUTED_SHA256" != "$DAE_CONFIG_SHA256" ]; then
+    echo "ERROR: dae UCI config SHA256 mismatch!" >&2
+    echo "  Expected: ${DAE_CONFIG_SHA256}" >&2
+    echo "  Got:      ${DAE_CONFIG_COMPUTED_SHA256:-<file not found>}" >&2
+    exit 1
   fi
-  sed -i '/sed -i.*DAE_LOCATION_ASSET.*\/etc\/init.d\/daed/d' luci-app-daed/root/etc/init.d/luci_daed
-  grep -q 'DAE_LOCATION_ASSET="/usr/share/v2ray"' daed/files/daed.init || {
-    echo "ERROR: failed to patch daed init environment" >&2
+
+  grep -q '^PKG_NAME:=dae$' dae/Makefile || {
+    echo "ERROR: unexpected dae package name" >&2
     exit 1
   }
-  ! grep -q 'sed -i.*DAE_LOCATION_ASSET.*\/etc\/init.d\/daed' luci-app-daed/root/etc/init.d/luci_daed || {
-    echo "ERROR: failed to remove runtime daed init mutation" >&2
+  grep -q '^PKG_VERSION:=0.4.0rc1$' dae/Makefile || {
+    echo "ERROR: unexpected dae package version" >&2
     exit 1
   }
-  echo "Patched daed init to avoid runtime init-script mutation"
+  grep -q '^define Package/dae-geoip$' dae/Makefile || {
+    echo "ERROR: dae-geoip package is missing" >&2
+    exit 1
+  }
+  grep -q '^define Package/dae-geosite$' dae/Makefile || {
+    echo "ERROR: dae-geosite package is missing" >&2
+    exit 1
+  }
+
+  rm -rf luci-app-dae
+  echo "dae package integrity verified (SHA256 match, LuCI UI removed)"
 
   cd "$OLDPWD" || exit 1
 
