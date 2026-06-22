@@ -14,6 +14,51 @@ refresh_package_metadata() {
   rm -f tmp/info/.files-packageinfo.* tmp/info/.packageinfo-*
 }
 
+inject_quickfile() {
+  echo "Injecting luci-app-quickfile (pinned commit)"
+
+  rm -rf package/quickfile
+
+  local quickfile_commit="e6621cf4cb4e46c022bcf13089ddd82454c35e1b"
+  local quickfile_makefile_sha256="808f64def69cd1ddce5185d78e1072e9c07eb03fec9b84f89b3f86f195b1b387"
+  local luci_app_quickfile_makefile_sha256="1aef0d690b577157f8eac21745b2518b149393e4ce8606c0f30258ff853f7376"
+  if [ -n "${GITHUB_ENV:-}" ]; then
+    echo "QUICKFILE_COMMIT=${quickfile_commit}" >> "$GITHUB_ENV"
+  fi
+
+  git clone https://github.com/sbwml/luci-app-quickfile package/quickfile
+  cd package/quickfile
+  git -c advice.detachedHead=false checkout "$quickfile_commit"
+
+  local quickfile_computed_sha256
+  quickfile_computed_sha256="$(sha256sum quickfile/Makefile 2>/dev/null | awk '{print $1}')"
+  if [ "$quickfile_computed_sha256" != "$quickfile_makefile_sha256" ]; then
+    echo "ERROR: quickfile Makefile SHA256 mismatch!" >&2
+    echo "  Expected: ${quickfile_makefile_sha256}" >&2
+    echo "  Got:      ${quickfile_computed_sha256:-<file not found>}" >&2
+    exit 1
+  fi
+
+  local luci_app_quickfile_computed_sha256
+  luci_app_quickfile_computed_sha256="$(sha256sum luci-app-quickfile/Makefile 2>/dev/null | awk '{print $1}')"
+  if [ "$luci_app_quickfile_computed_sha256" != "$luci_app_quickfile_makefile_sha256" ]; then
+    echo "ERROR: luci-app-quickfile Makefile SHA256 mismatch!" >&2
+    echo "  Expected: ${luci_app_quickfile_makefile_sha256}" >&2
+    echo "  Got:      ${luci_app_quickfile_computed_sha256:-<file not found>}" >&2
+    exit 1
+  fi
+  grep -q '^LUCI_DEPENDS:=+luci-nginx +quickfile$' luci-app-quickfile/Makefile || {
+    echo "ERROR: unexpected luci-app-quickfile dependencies" >&2
+    exit 1
+  }
+  grep -q '^PKG_VERSION:=1.0.24$' quickfile/Makefile || {
+    echo "ERROR: unexpected quickfile package version" >&2
+    exit 1
+  }
+  echo "quickfile Makefiles integrity verified (SHA256 match)"
+  cd "$OLDPWD" || exit 1
+}
+
 # ── Dynamic kernel version detection ──
 KERNEL_VER="$(grep -E '^KERNEL_PATCHVER:=' target/linux/qualcommax/Makefile 2>/dev/null | sed 's/.*:=//;s/^[[:space:]]*//')"
 KERNEL_VER="${KERNEL_VER:-6.12}"
@@ -114,6 +159,8 @@ cd package/luci-theme-aurora
 git -c advice.detachedHead=false checkout "$AURORA_COMMIT"
 cd "$OLDPWD" || exit 1
 
+inject_quickfile
+
 if [ "$VARIANT" = "core-daed" ]; then
   echo "Injecting luci-app-daed (pinned commit)"
 
@@ -205,49 +252,6 @@ if [ "$COMPUTED_SHA256" != "$HOMEPROXY_MAKEFILE_SHA256" ]; then
 fi
 echo "HomeProxy Makefile integrity verified (SHA256 match)"
 cd "$OLDPWD" || exit 1
-
-if [ "$VARIANT" = "ultimate" ]; then
-  echo "Injecting luci-app-quickfile (pinned commit)"
-
-  rm -rf package/quickfile
-
-  QUICKFILE_COMMIT="e6621cf4cb4e46c022bcf13089ddd82454c35e1b"
-  QUICKFILE_MAKEFILE_SHA256="808f64def69cd1ddce5185d78e1072e9c07eb03fec9b84f89b3f86f195b1b387"
-  LUCI_APP_QUICKFILE_MAKEFILE_SHA256="1aef0d690b577157f8eac21745b2518b149393e4ce8606c0f30258ff853f7376"
-  if [ -n "${GITHUB_ENV:-}" ]; then
-    echo "QUICKFILE_COMMIT=${QUICKFILE_COMMIT}" >> "$GITHUB_ENV"
-  fi
-
-  git clone https://github.com/sbwml/luci-app-quickfile package/quickfile
-  cd package/quickfile
-  git -c advice.detachedHead=false checkout "$QUICKFILE_COMMIT"
-
-  QUICKFILE_COMPUTED_SHA256="$(sha256sum quickfile/Makefile 2>/dev/null | awk '{print $1}')"
-  if [ "$QUICKFILE_COMPUTED_SHA256" != "$QUICKFILE_MAKEFILE_SHA256" ]; then
-    echo "ERROR: quickfile Makefile SHA256 mismatch!" >&2
-    echo "  Expected: ${QUICKFILE_MAKEFILE_SHA256}" >&2
-    echo "  Got:      ${QUICKFILE_COMPUTED_SHA256:-<file not found>}" >&2
-    exit 1
-  fi
-
-  LUCI_APP_QUICKFILE_COMPUTED_SHA256="$(sha256sum luci-app-quickfile/Makefile 2>/dev/null | awk '{print $1}')"
-  if [ "$LUCI_APP_QUICKFILE_COMPUTED_SHA256" != "$LUCI_APP_QUICKFILE_MAKEFILE_SHA256" ]; then
-    echo "ERROR: luci-app-quickfile Makefile SHA256 mismatch!" >&2
-    echo "  Expected: ${LUCI_APP_QUICKFILE_MAKEFILE_SHA256}" >&2
-    echo "  Got:      ${LUCI_APP_QUICKFILE_COMPUTED_SHA256:-<file not found>}" >&2
-    exit 1
-  fi
-  grep -q '^LUCI_DEPENDS:=+luci-nginx +quickfile$' luci-app-quickfile/Makefile || {
-    echo "ERROR: unexpected luci-app-quickfile dependencies" >&2
-    exit 1
-  }
-  grep -q '^PKG_VERSION:=1.0.24$' quickfile/Makefile || {
-    echo "ERROR: unexpected quickfile package version" >&2
-    exit 1
-  }
-  echo "quickfile Makefiles integrity verified (SHA256 match)"
-  cd "$OLDPWD" || exit 1
-fi
 
 refresh_package_metadata
 exit 0
