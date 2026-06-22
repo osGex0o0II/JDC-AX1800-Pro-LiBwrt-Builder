@@ -332,7 +332,7 @@ jobs:
               ;;
             core-daed)
               test -f package/dae/dae/Makefile
-              test ! -e package/dae/luci-app-dae
+              test -f package/dae/luci-app-dae/Makefile
               test ! -e package/feeds/packages/daed
               test ! -e package/feeds/packages/dae
               test ! -e package/feeds/luci/luci-app-daed
@@ -342,10 +342,15 @@ jobs:
               grep -q '^PKG_VERSION:=0.4.0rc1$' package/dae/dae/Makefile
               grep -q '^define Package/dae-geoip$' package/dae/dae/Makefile
               grep -q '^define Package/dae-geosite$' package/dae/dae/Makefile
+              grep -q '^PKG_NAME:=luci-app-dae$' package/dae/luci-app-dae/Makefile
+              grep -q '^LUCI_DEPENDS:=+dae +dae-geoip +dae-geosite$' package/dae/luci-app-dae/Makefile
+              grep -q '/etc/dae/config.dae' package/dae/luci-app-dae/luasrc/view/dae/dae_status.htm
+              grep -q 'logread' package/dae/luci-app-dae/luasrc/controller/dae.lua
               curl -fsIL --retry 3 --connect-timeout 10 "https://github.com/daeuniverse/dae/releases/download/v0.4.0rc1/dae-full-src.zip" >/dev/null
               require_config CONFIG_PACKAGE_dae
               require_config CONFIG_PACKAGE_dae-geoip
               require_config CONFIG_PACKAGE_dae-geosite
+              require_config CONFIG_PACKAGE_luci-app-dae
               require_config CONFIG_BPF_TOOLCHAIN_HOST
               require_config CONFIG_KERNEL_CGROUP_BPF
               require_config CONFIG_KERNEL_BPF_EVENTS
@@ -358,7 +363,6 @@ jobs:
               require_config CONFIG_PACKAGE_v2ray-geosite
               forbid_config CONFIG_PACKAGE_daed
               forbid_config CONFIG_PACKAGE_luci-app-daed
-              forbid_config CONFIG_PACKAGE_luci-app-dae
               forbid_config CONFIG_DAED_USE_KERNEL_BTF
               forbid_config CONFIG_DAED_USE_VMLINUX_BTF
               forbid_config CONFIG_PACKAGE_luci-app-homeproxy
@@ -532,7 +536,7 @@ jobs:
             for variant in core core-daed ultimate; do
               case "$variant" in
                 core) desc="日用主路由" ;;
-                core-daed) desc="dae/eBPF 文件配置版" ;;
+                core-daed) desc="dae/eBPF 文件配置 + LuCI 状态页" ;;
                 ultimate) desc="存储下载增强版" ;;
               esac
               sysupgrade="JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${variant}-sysupgrade.bin"

@@ -162,7 +162,7 @@ cd "$OLDPWD" || exit 1
 inject_quickfile
 
 if [ "$VARIANT" = "core-daed" ]; then
-  echo "Injecting dae (pinned commit, no LuCI UI)"
+  echo "Injecting dae (pinned commit, with LuCI status/log UI)"
 
   rm -rf \
     package/dae \
@@ -178,6 +178,7 @@ if [ "$VARIANT" = "core-daed" ]; then
   DAE_MAKEFILE_SHA256="4dab7b9fce7da10970b8ae4ee2794fc98401e169a8f1847f4768168f1cf77c31"
   DAE_INIT_SHA256="218af1544f31c79fc802bd473b1f507d98c50732edcde0888c7b8973b1d0c56c"
   DAE_CONFIG_SHA256="87641bee9900c787fd23e96d08feb400f14b8a8ac13e57296738f2d823fe606a"
+  LUCI_APP_DAE_MAKEFILE_SHA256="24d430d45ea42c49487651dcf6fc8d098d80154b4bdc75e20c3fd3ec705a3e5d"
   if [ -n "${GITHUB_ENV:-}" ]; then
     echo "DAE_COMMIT=${DAE_COMMIT}" >> "$GITHUB_ENV"
   fi
@@ -213,6 +214,14 @@ if [ "$VARIANT" = "core-daed" ]; then
     exit 1
   fi
 
+  LUCI_APP_DAE_COMPUTED_SHA256="$(sha256sum luci-app-dae/Makefile 2>/dev/null | awk '{print $1}')"
+  if [ "$LUCI_APP_DAE_COMPUTED_SHA256" != "$LUCI_APP_DAE_MAKEFILE_SHA256" ]; then
+    echo "ERROR: luci-app-dae Makefile SHA256 mismatch!" >&2
+    echo "  Expected: ${LUCI_APP_DAE_MAKEFILE_SHA256}" >&2
+    echo "  Got:      ${LUCI_APP_DAE_COMPUTED_SHA256:-<file not found>}" >&2
+    exit 1
+  fi
+
   grep -q '^PKG_NAME:=dae$' dae/Makefile || {
     echo "ERROR: unexpected dae package name" >&2
     exit 1
@@ -229,9 +238,143 @@ if [ "$VARIANT" = "core-daed" ]; then
     echo "ERROR: dae-geosite package is missing" >&2
     exit 1
   }
+  grep -q '^LUCI_DEPENDS:=+dae +dae-geoip +dae-geosite$' luci-app-dae/Makefile || {
+    echo "ERROR: unexpected luci-app-dae dependencies" >&2
+    exit 1
+  }
 
-  rm -rf luci-app-dae
-  echo "dae package integrity verified (SHA256 match, LuCI UI removed)"
+  cat > luci-app-dae/luasrc/controller/dae.lua <<'EOF'
+local sys  = require "luci.sys"
+local http = require "luci.http"
+
+module("luci.controller.dae", package.seeall)
+
+function index()
+	if not nixio.fs.access("/etc/config/dae") then
+		return
+	end
+
+	local page = entry({"admin", "services", "dae"}, cbi("dae"), _("DAE"), -1)
+	page.dependent = true
+	page.acl_depends = { "luci-app-dae" }
+
+	entry({"admin", "services", "dae", "status"}, call("act_status")).leaf = true
+end
+
+function act_status()
+	local e = {}
+	e.running = sys.call("pgrep -x /usr/bin/dae >/dev/null") == 0
+	e.log = sys.exec("logread 2>/dev/null | grep -i '[d]ae' | tail -n 120")
+	http.prepare_content("application/json")
+	http.write_json(e)
+end
+EOF
+
+  cat > luci-app-dae/luasrc/model/cbi/dae.lua <<'EOF'
+local fs = require "nixio.fs"
+local sys = require "luci.sys"
+local m, s
+
+m = Map("dae", translate("DAE"))
+m.description = translate("A Linux high-performance transparent proxy solution based on eBPF.") ..
+	"<br />" .. translate("Configuration file") .. ": <code>/etc/dae/config.dae</code>" ..
+	"<br />" .. translate("Runtime UCI file") .. ": <code>/etc/config/dae</code>"
+
+m:section(SimpleSection).template = "dae/dae_status"
+
+s = m:section(TypedSection, "dae")
+s.addremove = false
+s.anonymous = true
+
+o = s:option(Flag, "enabled", translate("Enabled"))
+o.rmempty = false
+
+o = s:option(Button, "_reload", translate("Reload Service"), translate("Reload the service effective configuration file."))
+o.write = function()
+	sys.exec("/etc/init.d/dae reload")
+end
+
+o = s:option(TextValue, "daeconf", translate("Configuration file"))
+o.description = "/etc/dae/config.dae"
+o.rows = 25
+o.rmempty = true
+o.wrap = "off"
+
+function o.cfgvalue(self, section)
+	return fs.readfile("/etc/dae/config.dae")
+end
+
+function o.write(self, section, value)
+	value = value:gsub("\r\n?", "\n")
+	fs.writefile("/etc/dae/config.dae", value)
+end
+
+o = s:option(DummyValue, "")
+o.template = "dae/dae_editor"
+
+return m
+EOF
+
+  cat > luci-app-dae/luasrc/view/dae/dae_status.htm <<'EOF'
+<script type="text/javascript">//<![CDATA[
+	XHR.poll(5, '<%=url("admin/services/dae/status")%>', null,
+		function(x, data)
+		{
+			var status = document.getElementById('dae_status');
+			var log = document.getElementById('dae_log');
+
+			if (data && status)
+			{
+				if (data.running)
+					status.innerHTML = '<em style="color:green"><b><%:DAE%> <%:RUNNING%></b></em>';
+				else
+					status.innerHTML = '<em style="color:red"><b><%:DAE%> <%:NOT RUNNING%></b></em>';
+			}
+
+			if (data && log)
+				log.textContent = data.log || '<%:No dae logs yet.%>';
+		}
+	);
+//]]></script>
+
+<fieldset class="cbi-section">
+	<p id="dae_status">
+		<em><b><%:Collecting data...%></b></em>
+	</p>
+	<p><%:Configuration file%>: <code>/etc/dae/config.dae</code></p>
+	<p><%:Runtime UCI file%>: <code>/etc/config/dae</code></p>
+</fieldset>
+
+<fieldset class="cbi-section">
+	<legend><%:Runtime log%></legend>
+	<pre id="dae_log" style="white-space:pre-wrap; max-height:24em; overflow:auto;"><%:Collecting data...%></pre>
+</fieldset>
+EOF
+
+  cat >> luci-app-dae/po/zh_Hans/dae.po <<'EOF'
+
+msgid "Configuration file"
+msgstr "配置文件"
+
+msgid "Runtime UCI file"
+msgstr "运行时 UCI 文件"
+
+msgid "Runtime log"
+msgstr "运行日志"
+
+msgid "No dae logs yet."
+msgstr "暂无 dae 日志。"
+EOF
+
+  grep -q '/etc/dae/config.dae' luci-app-dae/luasrc/view/dae/dae_status.htm || {
+    echo "ERROR: luci-app-dae config path display patch failed" >&2
+    exit 1
+  }
+  grep -q 'logread' luci-app-dae/luasrc/controller/dae.lua || {
+    echo "ERROR: luci-app-dae log display patch failed" >&2
+    exit 1
+  }
+  echo "dae package integrity verified (SHA256 match, LuCI status/log UI retained)"
 
   cd "$OLDPWD" || exit 1
 

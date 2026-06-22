@@ -18,7 +18,7 @@
 - Aurora LuCI 主题，固定上游 commit
 - 默认包含 HomeProxy/sing-box，固定 HomeProxy commit 并校验 Makefile SHA256
 - 默认包含 cpufreq、Samba、ZeroTier、ECM、QuickFile、DiskMan 和挂载支持
-- 提供 `core-daed` 实验变体，用于评估 dae/eBPF 透明代理，默认走 `config.dae` 文件配置
+- 提供 `core-daed` 实验变体，用于评估 dae/eBPF 透明代理，默认走 `config.dae` 文件配置，并保留 LuCI 状态/日志入口
 - GitHub Actions 自动编译、上传 artifact，并按日期合并发布 Release
 - Release 附带精简下载表、manifest、固件 SHA256、上游源码信息和最终配置摘要
 - 默认关闭 `ttyd`、packet steering 和 flow offloading，避免与 NSS 路径冲突
@@ -28,10 +28,10 @@
 | 变体 | 定位 | 主要内容 |
 |:---|:---|:---|
 | `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、QuickFile、DiskMan、挂载、USB 存储、CoreMark |
-| `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 dae、dae-geoip、dae-geosite，不包含 dae/daed 的 LuCI 图形界面，并启用 BPF/BTF/XDP 相关配置；文件管理同样使用 QuickFile |
+| `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 dae、dae-geoip、dae-geosite 和 luci-app-dae；LuCI 仅作为状态、配置文件路径、日志和原始配置文件查看/编辑入口，实际配置仍以 `/etc/dae/config.dae` 为准；文件管理同样使用 QuickFile |
 | `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、QuickFile、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
 
-`core-daed.config` 是在 `core.config` 上叠加的实验配置，变体名为兼容既有 artifact 命名而保留；当前实际代理包为纯 `dae`，通过 `/etc/dae/config.dae` 和 `/etc/config/dae` 管理。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
+`core-daed.config` 是在 `core.config` 上叠加的实验配置，变体名为兼容既有 artifact 命名而保留；当前实际代理服务为 `dae`，通过 `/etc/dae/config.dae` 和 `/etc/config/dae` 管理，LuCI 入口来自 `luci-app-dae`。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
 
 上游 LiBwrt `main-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。实机 QWRT/iStoreOS 分区布局使用 eMMC GPT，board id 为 `jdcloud,ax1800-pro`，HLOS/HLOS_1 为 12 MiB；构建脚本会在编译阶段把上游 recipe 的 kernel slot 从 6 MiB 调整到 12 MiB，并加入该兼容 ID。
 
