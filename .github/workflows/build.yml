@@ -346,6 +346,8 @@ jobs:
               grep -q '^LUCI_DEPENDS:=+dae +dae-geoip +dae-geosite$' package/dae/luci-app-dae/Makefile
               grep -q '/etc/dae/config.dae' package/dae/luci-app-dae/luasrc/view/dae/dae_status.htm
               grep -q 'logread' package/dae/luci-app-dae/luasrc/controller/dae.lua
+              grep -q 'pidof dae' package/dae/luci-app-dae/luasrc/controller/dae.lua
+              ! grep -q 'fs.writefile("/etc/dae/config.dae"' package/dae/luci-app-dae/luasrc/model/cbi/dae.lua
               curl -fsIL --retry 3 --connect-timeout 10 "https://github.com/daeuniverse/dae/releases/download/v0.4.0rc1/dae-full-src.zip" >/dev/null
               require_config CONFIG_PACKAGE_dae
               require_config CONFIG_PACKAGE_dae-geoip

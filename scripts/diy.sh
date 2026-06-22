@@ -263,7 +263,7 @@ end
 
 function act_status()
 	local e = {}
-	e.running = sys.call("pgrep -x /usr/bin/dae >/dev/null") == 0
+	e.running = sys.call("pidof dae >/dev/null") == 0
 	e.log = sys.exec("logread 2>/dev/null | grep -i '[d]ae' | tail -n 120")
 	http.prepare_content("application/json")
 	http.write_json(e)
@@ -271,7 +271,6 @@ end
 EOF
 
   cat > luci-app-dae/luasrc/model/cbi/dae.lua <<'EOF'
-local fs = require "nixio.fs"
 local sys = require "luci.sys"
 local m, s
 
@@ -286,31 +285,10 @@ s = m:section(TypedSection, "dae")
 s.addremove = false
 s.anonymous = true
 
-o = s:option(Flag, "enabled", translate("Enabled"))
-o.rmempty = false
-
 o = s:option(Button, "_reload", translate("Reload Service"), translate("Reload the service effective configuration file."))
 o.write = function()
 	sys.exec("/etc/init.d/dae reload")
 end
-
-o = s:option(TextValue, "daeconf", translate("Configuration file"))
-o.description = "/etc/dae/config.dae"
-o.rows = 25
-o.rmempty = true
-o.wrap = "off"
-
-function o.cfgvalue(self, section)
-	return fs.readfile("/etc/dae/config.dae")
-end
-
-function o.write(self, section, value)
-	value = value:gsub("\r\n?", "\n")
-	fs.writefile("/etc/dae/config.dae", value)
-end
-
-o = s:option(DummyValue, "")
-o.template = "dae/dae_editor"
 
 return m
 EOF
@@ -370,8 +348,16 @@ EOF
     echo "ERROR: luci-app-dae config path display patch failed" >&2
     exit 1
   }
+  grep -q 'pidof dae' luci-app-dae/luasrc/controller/dae.lua || {
+    echo "ERROR: luci-app-dae status check patch failed" >&2
+    exit 1
+  }
   grep -q 'logread' luci-app-dae/luasrc/controller/dae.lua || {
     echo "ERROR: luci-app-dae log display patch failed" >&2
+    exit 1
+  }
+  ! grep -q 'fs.writefile("/etc/dae/config.dae"' luci-app-dae/luasrc/model/cbi/dae.lua || {
+    echo "ERROR: luci-app-dae config editor is still writable" >&2
     exit 1
   }
   echo "dae package integrity verified (SHA256 match, LuCI status/log UI retained)"

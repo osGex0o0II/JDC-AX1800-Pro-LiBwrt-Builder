@@ -28,7 +28,7 @@
 | 变体 | 定位 | 主要内容 |
 |:---|:---|:---|
 | `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、QuickFile、DiskMan、挂载、USB 存储、CoreMark |
-| `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 dae、dae-geoip、dae-geosite 和 luci-app-dae；LuCI 仅作为状态、配置文件路径、日志和原始配置文件查看/编辑入口，实际配置仍以 `/etc/dae/config.dae` 为准；文件管理同样使用 QuickFile |
+| `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 dae、dae-geoip、dae-geosite 和 luci-app-dae；LuCI 仅作为状态、配置文件路径、日志和重载入口，实际配置仍以 `/etc/dae/config.dae` 为准；文件管理同样使用 QuickFile |
 | `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、QuickFile、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
 
 `core-daed.config` 是在 `core.config` 上叠加的实验配置，变体名为兼容既有 artifact 命名而保留；当前实际代理服务为 `dae`，通过 `/etc/dae/config.dae` 和 `/etc/config/dae` 管理，LuCI 入口来自 `luci-app-dae`。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
