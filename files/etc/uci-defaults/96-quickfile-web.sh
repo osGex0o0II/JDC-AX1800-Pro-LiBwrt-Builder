@@ -17,7 +17,7 @@ fi
 
 QUICKFILE_LOCATIONS="/etc/nginx/conf.d/quickfile.locations"
 if [ -f "$QUICKFILE_LOCATIONS" ]; then
-  if mountpoint -q /mnt/mmcblk0p24 2>/dev/null; then
+  if grep -q ' /mnt/mmcblk0p24 ' /proc/mounts 2>/dev/null; then
     QUICKFILE_TMP="/mnt/mmcblk0p24/quickfile_tmp"
   else
     QUICKFILE_TMP="/tmp/quickfile_tmp"
