@@ -282,6 +282,12 @@ jobs:
           require_config CONFIG_PACKAGE_block-mount
           require_config CONFIG_PACKAGE_blockd
           require_config CONFIG_PACKAGE_automount
+          forbid_config CONFIG_PACKAGE_luci-app-statistics
+          forbid_config CONFIG_PACKAGE_collectd
+          forbid_config CONFIG_PACKAGE_collectd-mod-cpu
+          forbid_config CONFIG_PACKAGE_collectd-mod-interface
+          forbid_config CONFIG_PACKAGE_collectd-mod-memory
+          forbid_config CONFIG_PACKAGE_collectd-mod-conntrack
           forbid_config CONFIG_PACKAGE_kmod-ath11k
           forbid_config CONFIG_PACKAGE_kmod-ath11k-ahb
           forbid_config CONFIG_PACKAGE_kmod-ath11k-pci
