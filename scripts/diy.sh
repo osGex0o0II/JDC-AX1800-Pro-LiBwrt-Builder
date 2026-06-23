@@ -3,7 +3,7 @@ set -euo pipefail
 
 # diy.sh - Apply custom configurations before build
 # Usage: bash diy.sh <variant>
-#   variant: core | core-daed | ultimate
+#   variant: core | core-dae | ultimate
 
 VARIANT="${1:-core}"
 OPENWRT_DIR="${OPENWRT_PATH:-openwrt}"
@@ -12,6 +12,15 @@ cd "$OPENWRT_DIR"
 refresh_package_metadata() {
   rm -f tmp/.packageinfo tmp/.packagedeps tmp/.packageauxvars tmp/.packageusergroup tmp/.config-package.in tmp/.config-feeds.in
   rm -f tmp/info/.files-packageinfo.* tmp/info/.packageinfo-*
+}
+
+normalize_overlay_modes() {
+  [ -d files/etc/uci-defaults ] && find files/etc/uci-defaults -type f -exec chmod 755 {} +
+  [ -d files/usr/sbin ] && find files/usr/sbin -type f -exec chmod 755 {} +
+  [ -x files/usr/sbin/quickfile-session ] || {
+    echo "ERROR: quickfile session helper is missing or not executable" >&2
+    exit 1
+  }
 }
 
 inject_quickfile() {
@@ -55,6 +64,212 @@ inject_quickfile() {
     echo "ERROR: unexpected quickfile package version" >&2
     exit 1
   }
+
+  mkdir -p luci-app-quickfile/root/usr/share/rpcd/acl.d
+  cat > luci-app-quickfile/root/usr/share/luci/menu.d/luci-app-quickfile.json <<'EOF'
+{
+	"admin/system/quickfile": {
+		"title": "Quick File Manager",
+		"order": 80,
+		"action": {
+			"type": "view",
+			"path": "system/quickfile"
+		},
+		"depends": {
+			"acl": [ "luci-app-quickfile" ]
+		}
+	}
+}
+EOF
+
+  cat > luci-app-quickfile/root/usr/share/rpcd/acl.d/luci-app-quickfile.json <<'EOF'
+{
+	"luci-app-quickfile": {
+		"description": "Grant access to the temporary QuickFile session gate",
+		"read": {
+			"file": {
+				"/usr/sbin/quickfile-session status": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ]
+			}
+		},
+		"write": {
+			"file": {
+				"/usr/sbin/quickfile-session enable": [ "exec" ],
+				"/usr/sbin/quickfile-session heartbeat": [ "exec" ],
+				"/usr/sbin/quickfile-session disable": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ]
+			}
+		}
+	}
+}
+EOF
+
+  cat > luci-app-quickfile/htdocs/luci-static/resources/view/system/quickfile.js <<'EOF'
+'use strict';
+'require fs';
+'require ui';
+'require view';
+
+function session(action) {
+	return fs.exec('/usr/sbin/quickfile-session', [ action ]);
+}
+
+return view.extend({
+	render: function () {
+		let interval = null;
+		let active = false;
+
+		const status = E('span', { 'class': 'spinning' }, _('Checking status...'));
+		const button = E('button', {
+			'class': 'btn cbi-button cbi-button-apply',
+			'click': enableSession
+		}, _('Enable QuickFile'));
+		const iframe = E('iframe', {
+			'src': 'about:blank',
+			'style': 'display:none;width:100%;height:calc(100vh - 220px);min-height:760px;border:0;border-radius:8px;'
+		});
+
+		const container = E('div', { 'class': 'cbi-map' }, [
+			E('h2', {}, _('Quick File Manager')),
+			E('div', { 'class': 'cbi-section' }, [
+				E('p', {}, status),
+				E('div', { 'class': 'right' }, [ button ])
+			]),
+			iframe
+		]);
+
+		function setInactive(text) {
+			active = false;
+			status.className = '';
+			status.textContent = text || _('QuickFile is disabled.');
+			button.disabled = false;
+			button.style.display = '';
+			iframe.style.display = 'none';
+			iframe.src = 'about:blank';
+		}
+
+		function setActive() {
+			active = true;
+			status.className = '';
+			status.textContent = _('QuickFile is enabled for this page.');
+			button.disabled = true;
+			button.style.display = 'none';
+			iframe.style.display = '';
+			iframe.src = L.url('admin/system/quickfile').replace(/\/admin\/system\/quickfile$/, '/quickfile');
+		}
+
+		function stopHeartbeat() {
+			if (interval != null) {
+				window.clearInterval(interval);
+				interval = null;
+			}
+		}
+
+		function disableSession() {
+			stopHeartbeat();
+			if (active)
+				session('disable').catch(function () {});
+			setInactive(_('QuickFile is disabled.'));
+		}
+
+		function heartbeat() {
+			if (!container.isConnected) {
+				disableSession();
+				return;
+			}
+
+			session('heartbeat').catch(function () {
+				disableSession();
+			});
+		}
+
+		function enableSession() {
+			button.disabled = true;
+			status.className = 'spinning';
+			status.textContent = _('Enabling QuickFile...');
+
+			session('enable').then(function () {
+				setActive();
+				heartbeat();
+				stopHeartbeat();
+				interval = window.setInterval(heartbeat, 8000);
+			}).catch(function (e) {
+				button.disabled = false;
+				ui.addNotification(null, E('p', {}, _('Failed to enable QuickFile: %s').format(e.message || e)), 'danger');
+				setInactive(_('QuickFile is disabled.'));
+			});
+		}
+
+		function checkStatus() {
+			session('status').then(function (res) {
+				if ((res.stdout || '').trim() == 'enabled') {
+					setActive();
+					heartbeat();
+					stopHeartbeat();
+					interval = window.setInterval(heartbeat, 8000);
+				}
+				else {
+					setInactive(_('QuickFile is disabled.'));
+				}
+			}).catch(function () {
+				setInactive(_('QuickFile is disabled.'));
+			});
+		}
+
+		window.addEventListener('pagehide', disableSession, { once: true });
+		window.addEventListener('beforeunload', disableSession, { once: true });
+		document.addEventListener('visibilitychange', function () {
+			if (document.hidden)
+				disableSession();
+		});
+
+		checkStatus();
+		return container;
+	},
+
+	handleSave: null,
+	handleSaveApply: null,
+	handleReset: null
+});
+EOF
+
+  cat >> luci-app-quickfile/po/zh_Hans/quickfile.po <<'EOF'
+
+msgid "Checking status..."
+msgstr "正在检查状态..."
+
+msgid "Enable QuickFile"
+msgstr "启用 QuickFile"
+
+msgid "QuickFile is disabled."
+msgstr "QuickFile 已关闭。"
+
+msgid "QuickFile is enabled for this page."
+msgstr "QuickFile 已为当前页面临时启用。"
+
+msgid "Enabling QuickFile..."
+msgstr "正在启用 QuickFile..."
+
+msgid "Failed to enable QuickFile: %s"
+msgstr "启用 QuickFile 失败：%s"
+EOF
+
+  grep -q '"acl": \[ "luci-app-quickfile" \]' luci-app-quickfile/root/usr/share/luci/menu.d/luci-app-quickfile.json || {
+    echo "ERROR: luci-app-quickfile menu ACL gate is missing" >&2
+    exit 1
+  }
+  grep -q '/usr/sbin/quickfile-session enable' luci-app-quickfile/root/usr/share/rpcd/acl.d/luci-app-quickfile.json || {
+    echo "ERROR: luci-app-quickfile session ACL is missing" >&2
+    exit 1
+  }
+  grep -q "session('heartbeat')" luci-app-quickfile/htdocs/luci-static/resources/view/system/quickfile.js || {
+    echo "ERROR: luci-app-quickfile heartbeat gate is missing" >&2
+    exit 1
+  }
   echo "quickfile Makefiles integrity verified (SHA256 match)"
   cd "$OLDPWD" || exit 1
 }
@@ -64,6 +279,7 @@ KERNEL_VER="$(grep -E '^KERNEL_PATCHVER:=' target/linux/qualcommax/Makefile 2>/d
 KERNEL_VER="${KERNEL_VER:-6.12}"
 KERNEL_CFG="target/linux/qualcommax/config-${KERNEL_VER}"
 echo "Detected kernel ${KERNEL_VER} (config: ${KERNEL_CFG})"
+normalize_overlay_modes
 
 # The retail AX1800 Pro layout seen on QWRT/iStoreOS uses 12 MiB HLOS slots
 # and reports board id jdcloud,ax1800-pro. LiBwrt's RE-SS-01 recipe is the
@@ -161,8 +377,8 @@ cd "$OLDPWD" || exit 1
 
 inject_quickfile
 
-if [ "$VARIANT" = "core-daed" ]; then
-  echo "Using feeds dae and injecting luci-app-dae (pinned commit, status/log UI)"
+if [ "$VARIANT" = "core-dae" ]; then
+  echo "Using feeds dae and injecting luci-app-dae (pinned commit, controls/editor/log UI)"
 
   rm -rf \
     package/dae \
@@ -219,6 +435,15 @@ if [ "$VARIANT" = "core-daed" ]; then
     exit 1
   }
 
+  if [ -f package/feeds/packages/dae/files/dae.init ] && \
+    ! grep -q 'mkdir -p "$LOG_DIR"' package/feeds/packages/dae/files/dae.init; then
+    sed -i '/local enabled/i\  mkdir -p "$LOG_DIR"' package/feeds/packages/dae/files/dae.init
+  fi
+  grep -q 'mkdir -p "$LOG_DIR"' package/feeds/packages/dae/files/dae.init || {
+    echo "ERROR: failed to patch dae init log directory setup" >&2
+    exit 1
+  }
+
   mkdir -p package/dae
   git -C package/dae init
   git -C package/dae remote add origin https://github.com/sbwml/luci-app-dae.git
@@ -265,18 +490,82 @@ function act_status()
 	if not e.log or #e.log == 0 then
 		e.log = sys.exec("logread 2>/dev/null | grep -i '[d]ae' | tail -n 120")
 	end
+	e.action = sys.exec("tail -n 80 /tmp/luci-dae-action.log 2>/dev/null")
 	http.prepare_content("application/json")
 	http.write_json(e)
 end
 EOF
 
   cat > luci-app-dae/luasrc/model/cbi/dae.lua <<'EOF'
+local fs = require "nixio.fs"
 local sys = require "luci.sys"
-local m, s
+local m, s, o
+
+local CONFIG_FILE = "/etc/dae/config.dae"
+local ACTION_LOG = "/tmp/luci-dae-action.log"
+
+local function shellquote(value)
+	return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
+end
+
+local function write_action_log(text)
+	fs.writefile(ACTION_LOG, os.date("%Y-%m-%d %H:%M:%S") .. "\n" .. tostring(text or "") .. "\n")
+end
+
+local function validate_config_file(path)
+	local log = "/tmp/luci-dae-validate.log"
+	local cmd = "dae validate -c " .. shellquote(path) .. " > " .. shellquote(log) .. " 2>&1"
+	local ok = sys.call(cmd) == 0
+	local output = fs.readfile(log) or ""
+	fs.remove(log)
+	return ok, output
+end
+
+local function validate_config_text(value)
+	value = (value or ""):gsub("\r\n?", "\n")
+	if value:gsub("%s+", "") == "" then
+		return nil, translate("Configuration cannot be empty.")
+	end
+
+	local tmp = "/tmp/luci-dae-config-" .. tostring(os.time()) .. "-" .. tostring(math.random(100000, 999999)) .. ".dae"
+	fs.writefile(tmp, value)
+	local ok, output = validate_config_file(tmp)
+	fs.remove(tmp)
+
+	if not ok then
+		return nil, translate("DAE configuration validation failed:") .. "\n" .. output
+	end
+
+	return value
+end
+
+local function service_action(action)
+	if action ~= "stop" then
+		local ok, output = validate_config_file(CONFIG_FILE)
+		if not ok then
+			write_action_log(translate("DAE configuration validation failed:") .. "\n" .. output)
+			return
+		end
+	end
+
+	if action == "start" then
+		sys.call("uci -q set dae.config.enabled='1' && uci -q commit dae >/dev/null 2>&1")
+		sys.call("/etc/init.d/dae enable >/dev/null 2>&1")
+	elseif action == "stop" then
+		sys.call("uci -q set dae.config.enabled='0' && uci -q commit dae >/dev/null 2>&1")
+		sys.call("/etc/init.d/dae disable >/dev/null 2>&1")
+	end
+
+	local log = "/tmp/luci-dae-service.log"
+	local rc = sys.call("/etc/init.d/dae " .. action .. " > " .. shellquote(log) .. " 2>&1")
+	local output = fs.readfile(log) or ""
+	fs.remove(log)
+	write_action_log("dae " .. action .. " rc=" .. tostring(rc) .. "\n" .. output)
+end
 
 m = Map("dae", translate("DAE"))
 m.description = translate("A Linux high-performance transparent proxy solution based on eBPF.") ..
-	"<br />" .. translate("Configuration file") .. ": <code>/etc/dae/config.dae</code>" ..
+	"<br />" .. translate("Configuration file") .. ": <code>" .. CONFIG_FILE .. "</code>" ..
 	"<br />" .. translate("Runtime UCI file") .. ": <code>/etc/config/dae</code>"
 
 m:section(SimpleSection).template = "dae/dae_status"
@@ -285,10 +574,65 @@ s = m:section(TypedSection, "dae")
 s.addremove = false
 s.anonymous = true
 
-o = s:option(Button, "_reload", translate("Reload Service"), translate("Reload the service effective configuration file."))
-o.write = function()
-	sys.exec("/etc/init.d/dae reload")
+o = s:option(Flag, "enabled", translate("Enabled"))
+o.rmempty = false
+function o.write(self, section, value)
+	Flag.write(self, section, value)
+	if value == "1" then
+		sys.call("/etc/init.d/dae enable >/dev/null 2>&1")
+	else
+		sys.call("/etc/init.d/dae disable >/dev/null 2>&1")
+		sys.call("/etc/init.d/dae stop >/dev/null 2>&1")
+	end
 end
+
+o = s:option(Button, "_start", translate("Start Service"))
+o.inputstyle = "apply"
+o.write = function()
+	service_action("start")
+end
+
+o = s:option(Button, "_stop", translate("Stop Service"))
+o.inputstyle = "reset"
+o.write = function()
+	service_action("stop")
+end
+
+o = s:option(Button, "_restart", translate("Restart Service"))
+o.inputstyle = "reload"
+o.write = function()
+	service_action("restart")
+end
+
+o = s:option(Button, "_reload", translate("Reload Service"), translate("Reload the service effective configuration file."))
+o.inputstyle = "reload"
+o.write = function()
+	service_action("reload")
+end
+
+o = s:option(TextValue, "daeconf", translate("Configuration Editor"))
+o.rows = 28
+o.rmempty = false
+o.wrap = "off"
+
+function o.cfgvalue(self, section)
+	return fs.readfile(CONFIG_FILE) or ""
+end
+
+function o.validate(self, value, section)
+	return validate_config_text(value)
+end
+
+function o.write(self, section, value)
+	value = validate_config_text(value)
+	if value then
+		fs.writefile(CONFIG_FILE, value)
+		write_action_log(translate("DAE configuration saved and validated."))
+	end
+end
+
+o = s:option(DummyValue, "")
+o.template = "dae/dae_editor"
 
 return m
 EOF
@@ -300,6 +644,7 @@ EOF
 		{
 			var status = document.getElementById('dae_status');
 			var log = document.getElementById('dae_log');
+			var action = document.getElementById('dae_action');
 
 			if (data && status)
 			{
@@ -311,6 +656,9 @@ EOF
 
 			if (data && log)
 				log.textContent = data.log || '<%:No dae logs yet.%>';
+
+			if (data && action)
+				action.textContent = data.action || '<%:No recent action output.%>';
 		}
 	);
 //]]></script>
@@ -327,6 +675,11 @@ EOF
 	<legend><%:Runtime log%></legend>
 	<pre id="dae_log" style="white-space:pre-wrap; max-height:24em; overflow:auto;"><%:Collecting data...%></pre>
 </fieldset>
+
+<fieldset class="cbi-section">
+	<legend><%:Action output%></legend>
+	<pre id="dae_action" style="white-space:pre-wrap; max-height:12em; overflow:auto;"><%:Collecting data...%></pre>
+</fieldset>
 EOF
 
   cat >> luci-app-dae/po/zh_Hans/dae.po <<'EOF'
@@ -340,12 +693,52 @@ msgstr "运行时 UCI 文件"
 msgid "Runtime log"
 msgstr "运行日志"
 
+msgid "Action output"
+msgstr "操作输出"
+
 msgid "No dae logs yet."
 msgstr "暂无 dae 日志。"
+
+msgid "No recent action output."
+msgstr "暂无操作输出。"
+
+msgid "Start Service"
+msgstr "启动服务"
+
+msgid "Stop Service"
+msgstr "停止服务"
+
+msgid "Restart Service"
+msgstr "重启服务"
+
+msgid "Configuration cannot be empty."
+msgstr "配置不能为空。"
+
+msgid "DAE configuration validation failed:"
+msgstr "DAE 配置校验失败："
+
+msgid "DAE configuration saved and validated."
+msgstr "DAE 配置已保存并通过校验。"
 EOF
 
   grep -q '/etc/dae/config.dae' luci-app-dae/luasrc/view/dae/dae_status.htm || {
     echo "ERROR: luci-app-dae config path display patch failed" >&2
+    exit 1
+  }
+  grep -q 's:option(Flag, "enabled"' luci-app-dae/luasrc/model/cbi/dae.lua || {
+    echo "ERROR: luci-app-dae enabled switch patch failed" >&2
+    exit 1
+  }
+  grep -q 's:option(TextValue, "daeconf"' luci-app-dae/luasrc/model/cbi/dae.lua || {
+    echo "ERROR: luci-app-dae config editor patch failed" >&2
+    exit 1
+  }
+  grep -q 'validate_config_text' luci-app-dae/luasrc/model/cbi/dae.lua || {
+    echo "ERROR: luci-app-dae config validation patch failed" >&2
+    exit 1
+  }
+  grep -q 'fs.writefile(CONFIG_FILE' luci-app-dae/luasrc/model/cbi/dae.lua || {
+    echo "ERROR: luci-app-dae config writer patch failed" >&2
     exit 1
   }
   grep -q 'pidof dae' luci-app-dae/luasrc/controller/dae.lua || {
@@ -360,11 +753,7 @@ EOF
     echo "ERROR: luci-app-dae log display patch failed" >&2
     exit 1
   }
-  ! grep -q 'fs.writefile("/etc/dae/config.dae"' luci-app-dae/luasrc/model/cbi/dae.lua || {
-    echo "ERROR: luci-app-dae config editor is still writable" >&2
-    exit 1
-  }
-  echo "dae package source verified (feeds dae 1.0.0, LuCI status/log UI retained)"
+  echo "dae package source verified (feeds dae 1.0.0, LuCI controls/editor/log UI retained)"
 
   cd "$OLDPWD" || exit 1
 

@@ -18,7 +18,7 @@
 - Aurora LuCI 主题，固定上游 commit
 - 默认包含 HomeProxy/sing-box，固定 HomeProxy commit 并校验 Makefile SHA256
 - 默认包含 cpufreq、Samba、ZeroTier、ECM、QuickFile、DiskMan 和挂载支持
-- 提供 `core-daed` 实验变体，用于评估 dae/eBPF 透明代理，默认走 `config.dae` 文件配置，并保留 LuCI 状态/日志入口
+- 提供 `core-dae` 实验变体，用于评估 dae/eBPF 透明代理，LuCI 提供启停控制、配置编辑、保存前校验、运行状态和日志入口
 - GitHub Actions 自动编译、上传 artifact，并按日期合并发布 Release
 - Release 附带精简下载表、manifest、固件 SHA256、上游源码信息和最终配置摘要
 - 默认关闭 `ttyd`、packet steering 和 flow offloading，避免与 NSS 路径冲突
@@ -28,27 +28,27 @@
 | 变体 | 定位 | 主要内容 |
 |:---|:---|:---|
 | `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、QuickFile、DiskMan、挂载、USB 存储、CoreMark |
-| `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 feeds 中的 dae 1.0.0、dae-geoip、dae-geosite 和 luci-app-dae；LuCI 仅作为状态、配置文件路径、日志和重载入口，实际配置仍以 `/etc/dae/config.dae` 为准；文件管理同样使用 QuickFile |
+| `core-dae` | eBPF 代理实验版 | 在 `core` 基础上替换为 feeds 中的 dae 1.0.0、dae-geoip、dae-geosite 和 luci-app-dae；LuCI 提供启停控制、`/etc/dae/config.dae` 编辑器、保存前校验、运行状态和日志入口；文件管理同样使用 QuickFile |
 | `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、QuickFile、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
 
-`core-daed.config` 是在 `core.config` 上叠加的实验配置，变体名为兼容既有 artifact 命名而保留；当前实际代理服务为 feeds 中的 `dae`，通过 `/etc/dae/config.dae` 和 `/etc/config/dae` 管理，LuCI 入口来自 `luci-app-dae`。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
+`core-dae.config` 是在 `core.config` 上叠加的实验配置；实际代理服务为 feeds 中的 `dae`，通过 `/etc/dae/config.dae` 和 `/etc/config/dae` 管理，LuCI 入口来自 `luci-app-dae`。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-dae.config`，避免同时包含两套代理方案。
 
 上游 LiBwrt `main-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。实机 QWRT/iStoreOS 分区布局使用 eMMC GPT，board id 为 `jdcloud,ax1800-pro`，HLOS/HLOS_1 为 12 MiB；构建脚本会在编译阶段把上游 recipe 的 kernel slot 从 6 MiB 调整到 12 MiB，并加入该兼容 ID。
 
-当前上游 LuCI feeds 不提供旧包名 `luci-app-filetransfer`；本项目默认使用 `luci-app-quickfile` 覆盖 LuCI 文件上传、下载和管理场景。
+当前上游 LuCI feeds 不提供旧包名 `luci-app-filetransfer`；本项目默认使用固定 commit 的 `luci-app-quickfile` 覆盖 LuCI 文件上传、下载和管理场景。
 
-QuickFile 依赖 nginx 反代 Unix socket，固件首启会启用 nginx/quickfile 并关闭 uhttpd，避免两个 Web 服务争用 80 端口。QuickFile 具备较强的文件管理能力，请不要把 LuCI 管理口暴露到 WAN。
+QuickFile 依赖 nginx 反代 Unix socket。上游 `quickfile` 包下载的是 `quickfile-1.0.24.tar.gz` 中的预编译二进制，本项目固定 Git commit、Makefile SHA256 和 tarball SHA256，并在 LuCI 入口外增加临时会话开关：固件首启只配置 nginx，`quickfile` 后端默认关闭；进入 QuickFile 页面后需要手动开启，页面心跳保持服务可用，离开页面或心跳超时后会自动停止。QuickFile 具备较强的文件管理和命令能力，请不要把 LuCI 管理口暴露到 WAN。
 
 ## 使用 GitHub Actions 编译
 
 1. Fork 本仓库。
 2. 进入 **Actions**，启用 workflow。
 3. 打开 **Build JDC AX1800 Pro LiBwrt**。
-4. 点击 **Run workflow**，默认选择 `all` 一次构建 `core`、`core-daed` 和 `ultimate`，并发布到同一个日期 Release。
+4. 点击 **Run workflow**，默认选择 `all` 一次构建 `core`、`core-dae` 和 `ultimate`，并发布到同一个日期 Release。
 5. 可选：在 `repo_commit` 填入 LiBwrt 上游 commit hash，用于固定源码版本。
 6. 编译完成后从 workflow artifact 或 Releases 下载固件。
 
-也可以只选择 `core`、`core-daed` 或 `ultimate` 单独构建调试；单变体构建只上传 workflow artifact，不更新 Releases。
+也可以只选择 `core`、`core-dae` 或 `ultimate` 单独构建；任意选择只要构建成功都会更新当天 Release。同名固件资产会由最新构建自动覆盖，Release 中只保留当前同名固件。
 
 Actions 会在编译前校验目标设备和关键软件包，避免配置叠加失败或上游 defconfig 变化导致包被静默移除。
 
@@ -61,8 +61,8 @@ cd openwrt
 # core
 cp ../configs/core.config .config
 
-# core-daed
-# cat ../configs/core.config ../configs/core-daed.config > .config
+# core-dae
+# cat ../configs/core.config ../configs/core-dae.config > .config
 
 # ultimate
 # cat ../configs/core.config ../configs/ultimate.config > .config
@@ -76,8 +76,8 @@ cp -a ../files/. files/
 # core/ultimate 复制 HomeProxy 默认项
 cp -a ../files-homeproxy/. files/
 
-# core-daed 需要额外复制 dae 默认项
-# cp -a ../files-daed/. files/
+# core-dae 需要额外复制 dae 默认项
+# cp -a ../files-dae/. files/
 
 # ultimate 需要额外复制存储下载增强默认项
 # cp -a ../files-ultimate/. files/
@@ -88,7 +88,7 @@ make download -j"$(nproc)"
 make -j"$(nproc)"
 ```
 
-本地编译 `core-daed` 或 `ultimate` 时，请把配置叠加、overlay 复制和 `diy.sh` 的最后一个参数改成对应变体。
+本地编译 `core-dae` 或 `ultimate` 时，请把配置叠加、overlay 复制和 `diy.sh` 的最后一个参数改成对应变体。
 
 ## 默认配置
 
@@ -258,7 +258,7 @@ net.ipv4.tcp_congestion_control=bbr
 - dae 状态
 - 可用内存
 
-`core`、`core-daed` 和 `ultimate` 变体会通过 cron 定期运行健康检查。脚本只做服务级恢复和日志记录，不会自动重启整机；DNS 查询失败只记录日志，不会因为上游解析瞬断而直接重启 dnsmasq。
+`core`、`core-dae` 和 `ultimate` 变体会通过 cron 定期运行健康检查。脚本只做服务级恢复和日志记录，不会自动重启整机；DNS 查询失败只记录日志，不会因为上游解析瞬断而直接重启 dnsmasq。
 
 ## 项目结构
 
@@ -269,11 +269,11 @@ net.ipv4.tcp_congestion_control=bbr
 │   └── cleanup.yml        # 清理旧 workflow runs 和 releases
 ├── configs/
 │   ├── core.config        # 基础配置
-│   ├── core-daed.config   # dae/eBPF 实验配置
+│   ├── core-dae.config    # dae/eBPF 实验配置
 │   └── ultimate.config    # ultimate 存储下载增强配置
 ├── files/                 # 所有变体共用 overlay
 ├── files-homeproxy/       # HomeProxy/sing-box 默认项
-├── files-daed/            # dae 默认项
+├── files-dae/             # dae 默认项
 ├── files-ultimate/        # ultimate 专属 overlay
 ├── scripts/
 │   ├── diy.sh             # 编译前自定义
@@ -288,9 +288,9 @@ net.ipv4.tcp_congestion_control=bbr
 ## 自定义建议
 
 - 修改包选择时优先编辑 `configs/*.config`，不要直接改 Actions 里的包列表。
-- 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，dae 放 `files-daed/`，ultimate 存储下载增强相关放 `files-ultimate/`。
+- 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，dae 放 `files-dae/`，ultimate 存储下载增强相关放 `files-ultimate/`。
 - 更新 HomeProxy commit 时，同步更新 `HOMEPROXY_MAKEFILE_SHA256`。
-- 更新 core-daed 时，优先核对 feeds 中 `dae` 的 `PKG_VERSION` / `PKG_HASH` / 依赖项；更新 LuCI 入口时同步更新 `LUCI_APP_DAE_COMMIT` 和 `LUCI_APP_DAE_MAKEFILE_SHA256`，并优先在 `core-daed` 变体验证。
+- 更新 core-dae 时，优先核对 feeds 中 `dae` 的 `PKG_VERSION` / `PKG_HASH` / 依赖项；更新 LuCI 入口时同步更新 `LUCI_APP_DAE_COMMIT` 和 `LUCI_APP_DAE_MAKEFILE_SHA256`，并优先在 `core-dae` 变体验证。
 - 更新第三方 GitHub Actions 时，建议继续固定到具体 commit SHA。
 
 ## 致谢

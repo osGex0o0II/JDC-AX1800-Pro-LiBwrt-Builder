@@ -1,7 +1,8 @@
 #!/bin/sh
 
 # QuickFile uses nginx to proxy a Unix socket under LuCI. Use nginx as the
-# web entrypoint and keep uhttpd disabled so both services do not bind :80.
+# web entrypoint, but keep the QuickFile backend disabled until a LuCI page
+# opens a short-lived session.
 if uci -q show nginx >/dev/null 2>&1; then
   uci -q set nginx.global.uci_enable='true'
   uci -q delete nginx._redirect2ssl
@@ -33,8 +34,8 @@ fi
 
 [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd disable 2>/dev/null || true
 [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd stop 2>/dev/null || true
-[ -x /etc/init.d/quickfile ] && /etc/init.d/quickfile enable 2>/dev/null || true
-[ -x /etc/init.d/quickfile ] && /etc/init.d/quickfile restart 2>/dev/null || true
+[ -x /etc/init.d/quickfile ] && /etc/init.d/quickfile disable 2>/dev/null || true
+[ -x /etc/init.d/quickfile ] && /etc/init.d/quickfile stop 2>/dev/null || true
 [ -x /etc/init.d/nginx ] && /etc/init.d/nginx enable 2>/dev/null || true
 [ -x /etc/init.d/nginx ] && /etc/init.d/nginx restart 2>/dev/null || true
 
