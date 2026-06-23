@@ -162,57 +162,70 @@ cd "$OLDPWD" || exit 1
 inject_quickfile
 
 if [ "$VARIANT" = "core-daed" ]; then
-  echo "Injecting dae (pinned commit, with LuCI status/log UI)"
+  echo "Using feeds dae and injecting luci-app-dae (pinned commit, status/log UI)"
 
   rm -rf \
     package/dae \
     package/daed \
     package/luci-app-daed \
     package/luci-app-dae \
-    package/feeds/packages/dae \
     package/feeds/packages/daed \
     package/feeds/luci/luci-app-daed \
     package/feeds/luci/luci-app-dae
 
-  DAE_COMMIT="27213747d9fe82645dd3c16f07c0da53b4b34b97"
-  DAE_MAKEFILE_SHA256="4dab7b9fce7da10970b8ae4ee2794fc98401e169a8f1847f4768168f1cf77c31"
-  DAE_INIT_SHA256="218af1544f31c79fc802bd473b1f507d98c50732edcde0888c7b8973b1d0c56c"
-  DAE_CONFIG_SHA256="87641bee9900c787fd23e96d08feb400f14b8a8ac13e57296738f2d823fe606a"
+  LUCI_APP_DAE_COMMIT="27213747d9fe82645dd3c16f07c0da53b4b34b97"
   LUCI_APP_DAE_MAKEFILE_SHA256="24d430d45ea42c49487651dcf6fc8d098d80154b4bdc75e20c3fd3ec705a3e5d"
   if [ -n "${GITHUB_ENV:-}" ]; then
-    echo "DAE_COMMIT=${DAE_COMMIT}" >> "$GITHUB_ENV"
+    echo "LUCI_APP_DAE_COMMIT=${LUCI_APP_DAE_COMMIT}" >> "$GITHUB_ENV"
   fi
+
+  test -f package/feeds/packages/dae/Makefile || {
+    echo "ERROR: feeds dae package is missing" >&2
+    exit 1
+  }
+
+  grep -q '^PKG_NAME:=dae$' package/feeds/packages/dae/Makefile || {
+    echo "ERROR: unexpected feeds dae package name" >&2
+    exit 1
+  }
+  grep -q '^PKG_VERSION:=1.0.0$' package/feeds/packages/dae/Makefile || {
+    echo "ERROR: unexpected feeds dae package version" >&2
+    exit 1
+  }
+  grep -q '^PKG_HASH:=d933b93fc30cb4e9941cbb1be23557bd6caa2a33af212883505fec435d06fc13$' package/feeds/packages/dae/Makefile || {
+    echo "ERROR: unexpected feeds dae source hash" >&2
+    exit 1
+  }
+  grep -q '^define Package/dae-geoip$' package/feeds/packages/dae/Makefile || {
+    echo "ERROR: dae-geoip package is missing" >&2
+    exit 1
+  }
+  grep -q '^define Package/dae-geosite$' package/feeds/packages/dae/Makefile || {
+    echo "ERROR: dae-geosite package is missing" >&2
+    exit 1
+  }
+  grep -q '+kmod-veth' package/feeds/packages/dae/Makefile || {
+    echo "ERROR: feeds dae is missing kmod-veth dependency" >&2
+    exit 1
+  }
+
+  if ! grep -q '$(1)/etc/dae/config.dae' package/feeds/packages/dae/Makefile; then
+    sed -i '/$(INSTALL_CONF).*$(PKG_BUILD_DIR)\/example.dae.*$(1)\/etc\/dae\/$/a\
+	$(INSTALL_CONF) $(PKG_BUILD_DIR)/example.dae $(1)/etc/dae/config.dae' \
+      package/feeds/packages/dae/Makefile
+  fi
+  grep -q '$(1)/etc/dae/config.dae' package/feeds/packages/dae/Makefile || {
+    echo "ERROR: failed to patch feeds dae default config install" >&2
+    exit 1
+  }
 
   mkdir -p package/dae
   git -C package/dae init
   git -C package/dae remote add origin https://github.com/sbwml/luci-app-dae.git
-  git -C package/dae fetch --depth=1 origin "$DAE_COMMIT"
+  git -C package/dae fetch --depth=1 origin "$LUCI_APP_DAE_COMMIT"
   git -C package/dae -c advice.detachedHead=false checkout FETCH_HEAD
   cd package/dae
-
-  DAE_COMPUTED_SHA256="$(sha256sum dae/Makefile 2>/dev/null | awk '{print $1}')"
-  if [ "$DAE_COMPUTED_SHA256" != "$DAE_MAKEFILE_SHA256" ]; then
-    echo "ERROR: dae Makefile SHA256 mismatch!" >&2
-    echo "  Expected: ${DAE_MAKEFILE_SHA256}" >&2
-    echo "  Got:      ${DAE_COMPUTED_SHA256:-<file not found>}" >&2
-    exit 1
-  fi
-
-  DAE_INIT_COMPUTED_SHA256="$(sha256sum dae/files/dae.init 2>/dev/null | awk '{print $1}')"
-  if [ "$DAE_INIT_COMPUTED_SHA256" != "$DAE_INIT_SHA256" ]; then
-    echo "ERROR: dae init SHA256 mismatch!" >&2
-    echo "  Expected: ${DAE_INIT_SHA256}" >&2
-    echo "  Got:      ${DAE_INIT_COMPUTED_SHA256:-<file not found>}" >&2
-    exit 1
-  fi
-
-  DAE_CONFIG_COMPUTED_SHA256="$(sha256sum dae/files/dae.config 2>/dev/null | awk '{print $1}')"
-  if [ "$DAE_CONFIG_COMPUTED_SHA256" != "$DAE_CONFIG_SHA256" ]; then
-    echo "ERROR: dae UCI config SHA256 mismatch!" >&2
-    echo "  Expected: ${DAE_CONFIG_SHA256}" >&2
-    echo "  Got:      ${DAE_CONFIG_COMPUTED_SHA256:-<file not found>}" >&2
-    exit 1
-  fi
+  rm -rf dae
 
   LUCI_APP_DAE_COMPUTED_SHA256="$(sha256sum luci-app-dae/Makefile 2>/dev/null | awk '{print $1}')"
   if [ "$LUCI_APP_DAE_COMPUTED_SHA256" != "$LUCI_APP_DAE_MAKEFILE_SHA256" ]; then
@@ -222,22 +235,6 @@ if [ "$VARIANT" = "core-daed" ]; then
     exit 1
   fi
 
-  grep -q '^PKG_NAME:=dae$' dae/Makefile || {
-    echo "ERROR: unexpected dae package name" >&2
-    exit 1
-  }
-  grep -q '^PKG_VERSION:=0.4.0rc1$' dae/Makefile || {
-    echo "ERROR: unexpected dae package version" >&2
-    exit 1
-  }
-  grep -q '^define Package/dae-geoip$' dae/Makefile || {
-    echo "ERROR: dae-geoip package is missing" >&2
-    exit 1
-  }
-  grep -q '^define Package/dae-geosite$' dae/Makefile || {
-    echo "ERROR: dae-geosite package is missing" >&2
-    exit 1
-  }
   grep -q '^LUCI_DEPENDS:=+dae +dae-geoip +dae-geosite$' luci-app-dae/Makefile || {
     echo "ERROR: unexpected luci-app-dae dependencies" >&2
     exit 1
@@ -264,7 +261,10 @@ end
 function act_status()
 	local e = {}
 	e.running = sys.call("pidof dae >/dev/null") == 0
-	e.log = sys.exec("logread 2>/dev/null | grep -i '[d]ae' | tail -n 120")
+	e.log = sys.exec("tail -n 120 /var/log/dae/dae.log 2>/dev/null")
+	if not e.log or #e.log == 0 then
+		e.log = sys.exec("logread 2>/dev/null | grep -i '[d]ae' | tail -n 120")
+	end
 	http.prepare_content("application/json")
 	http.write_json(e)
 end
@@ -352,6 +352,10 @@ EOF
     echo "ERROR: luci-app-dae status check patch failed" >&2
     exit 1
   }
+  grep -q '/var/log/dae/dae.log' luci-app-dae/luasrc/controller/dae.lua || {
+    echo "ERROR: luci-app-dae file log display patch failed" >&2
+    exit 1
+  }
   grep -q 'logread' luci-app-dae/luasrc/controller/dae.lua || {
     echo "ERROR: luci-app-dae log display patch failed" >&2
     exit 1
@@ -360,7 +364,7 @@ EOF
     echo "ERROR: luci-app-dae config editor is still writable" >&2
     exit 1
   }
-  echo "dae package integrity verified (SHA256 match, LuCI status/log UI retained)"
+  echo "dae package source verified (feeds dae 1.0.0, LuCI status/log UI retained)"
 
   cd "$OLDPWD" || exit 1
 

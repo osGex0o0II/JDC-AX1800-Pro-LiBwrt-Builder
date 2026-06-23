@@ -28,10 +28,10 @@
 | 变体 | 定位 | 主要内容 |
 |:---|:---|:---|
 | `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、QuickFile、DiskMan、挂载、USB 存储、CoreMark |
-| `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 dae、dae-geoip、dae-geosite 和 luci-app-dae；LuCI 仅作为状态、配置文件路径、日志和重载入口，实际配置仍以 `/etc/dae/config.dae` 为准；文件管理同样使用 QuickFile |
+| `core-daed` | eBPF 代理实验版 | 在 `core` 基础上替换为 feeds 中的 dae 1.0.0、dae-geoip、dae-geosite 和 luci-app-dae；LuCI 仅作为状态、配置文件路径、日志和重载入口，实际配置仍以 `/etc/dae/config.dae` 为准；文件管理同样使用 QuickFile |
 | `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、QuickFile、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
 
-`core-daed.config` 是在 `core.config` 上叠加的实验配置，变体名为兼容既有 artifact 命名而保留；当前实际代理服务为 `dae`，通过 `/etc/dae/config.dae` 和 `/etc/config/dae` 管理，LuCI 入口来自 `luci-app-dae`。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
+`core-daed.config` 是在 `core.config` 上叠加的实验配置，变体名为兼容既有 artifact 命名而保留；当前实际代理服务为 feeds 中的 `dae`，通过 `/etc/dae/config.dae` 和 `/etc/config/dae` 管理，LuCI 入口来自 `luci-app-dae`。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daed.config`，避免同时包含两套代理方案。
 
 上游 LiBwrt `main-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。实机 QWRT/iStoreOS 分区布局使用 eMMC GPT，board id 为 `jdcloud,ax1800-pro`，HLOS/HLOS_1 为 12 MiB；构建脚本会在编译阶段把上游 recipe 的 kernel slot 从 6 MiB 调整到 12 MiB，并加入该兼容 ID。
 
@@ -290,7 +290,7 @@ net.ipv4.tcp_congestion_control=bbr
 - 修改包选择时优先编辑 `configs/*.config`，不要直接改 Actions 里的包列表。
 - 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，dae 放 `files-daed/`，ultimate 存储下载增强相关放 `files-ultimate/`。
 - 更新 HomeProxy commit 时，同步更新 `HOMEPROXY_MAKEFILE_SHA256`。
-- 更新 dae 时，同步更新 `DAE_COMMIT` 及相关 SHA256，并优先在 `core-daed` 变体验证。
+- 更新 core-daed 时，优先核对 feeds 中 `dae` 的 `PKG_VERSION` / `PKG_HASH` / 依赖项；更新 LuCI 入口时同步更新 `LUCI_APP_DAE_COMMIT` 和 `LUCI_APP_DAE_MAKEFILE_SHA256`，并优先在 `core-daed` 变体验证。
 - 更新第三方 GitHub Actions 时，建议继续固定到具体 commit SHA。
 
 ## 致谢

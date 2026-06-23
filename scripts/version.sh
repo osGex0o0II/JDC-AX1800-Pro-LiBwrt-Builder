@@ -1,7 +1,13 @@
 #!/bin/bash
 # version.sh - Auto-generate version info for JDC AX1800 Pro LiBwrt
 
-BUILD_DATE="${FILE_DATE:-${BUILD_DATE:-$(date +%Y.%m.%d)}}"
+if [ -n "${FILE_DATE:-}" ]; then
+  BUILD_DATE="$FILE_DATE"
+elif [ -n "${BUILD_DATE:-}" ]; then
+  BUILD_DATE="$BUILD_DATE"
+else
+  BUILD_DATE="$(date +%Y.%m.%d)"
+fi
 BUILD_YEAR="${BUILD_DATE%%.*}"
 BUILD_MONTH="${BUILD_DATE#*.}"
 BUILD_MONTH="${BUILD_MONTH%%.*}"
