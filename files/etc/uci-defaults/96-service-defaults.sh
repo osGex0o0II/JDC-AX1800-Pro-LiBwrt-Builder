@@ -13,4 +13,18 @@ uci commit network
 [ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd disable 2>/dev/null || true
 [ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd stop 2>/dev/null || true
 
+# QuickFile-Go remains available on LAN, while its built-in terminal is off by
+# default because it is the highest-risk file manager capability.
+if uci -q show quickfile-go >/dev/null 2>&1; then
+  uci -q set quickfile-go.main.enabled='1'
+  uci -q set quickfile-go.main.listen_addr='auto'
+  uci -q set quickfile-go.main.enable_terminal='0'
+  uci -q commit quickfile-go
+fi
+
+[ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd enable 2>/dev/null || true
+[ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart 2>/dev/null || true
+[ -x /etc/init.d/quickfile-go ] && /etc/init.d/quickfile-go enable 2>/dev/null || true
+[ -x /etc/init.d/quickfile-go ] && /etc/init.d/quickfile-go restart 2>/dev/null || true
+
 exit 0

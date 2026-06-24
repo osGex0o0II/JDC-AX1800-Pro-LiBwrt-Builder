@@ -94,14 +94,19 @@ check_proxy() {
   fi
 }
 
-check_dae() {
-  if [ ! -x /etc/init.d/dae ] || ! /etc/init.d/dae enabled >/dev/null 2>&1; then
-    return 0
+check_daede() {
+  if [ -x /etc/init.d/daed ] && /etc/init.d/daed enabled >/dev/null 2>&1; then
+    if ! pidof daed >/dev/null 2>&1; then
+      log "daed is enabled but not running"
+      restart_service daed
+    fi
   fi
 
-  if ! pidof dae >/dev/null 2>&1; then
-    log "dae is enabled but not running"
-    restart_service dae
+  if [ -x /etc/init.d/dae ] && /etc/init.d/dae enabled >/dev/null 2>&1; then
+    if ! pidof dae >/dev/null 2>&1; then
+      log "dae is enabled but not running"
+      restart_service dae
+    fi
   fi
 }
 
@@ -111,7 +116,7 @@ if has_default_route; then
   check_dnsmasq
   check_dns
   check_proxy
-  check_dae
+  check_daede
 else
   log "no default route"
 fi
