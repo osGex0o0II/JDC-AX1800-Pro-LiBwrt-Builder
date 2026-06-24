@@ -287,6 +287,10 @@ jobs:
           grep -q '^PKG_RELEASE:=73$' package/luci-app-quickfile-go/Makefile
           grep -q 'DEPENDS:=+luci-base +rpcd' package/luci-app-quickfile-go/Makefile
           grep -q 'quickfile-go-api' package/luci-app-quickfile-go/Makefile
+          grep -Fq 'listen_addr="${listen_addr%%/*}"' package/luci-app-quickfile-go/root/etc/init.d/quickfile-go
+          grep -Fq 'localStorage.getItem("quickfileGoTheme")' package/luci-app-quickfile-go/htdocs/luci-static/resources/view/quickfile-go.js
+          grep -Fq 'data-darkmode' package/luci-app-quickfile-go/htdocs/luci-static/resources/view/quickfile-go.js
+          grep -Fq '"title": "\u6587\u4ef6\u7ba1\u7406"' package/luci-app-quickfile-go/root/usr/share/luci/menu.d/luci-app-quickfile-go.json
           grep -q "option enable_terminal '1'" package/luci-app-quickfile-go/root/etc/config/quickfile-go
           grep -q "quickfile-go.main.enable_terminal='0'" files/etc/uci-defaults/96-service-defaults.sh
           require_config CONFIG_PACKAGE_luci-app-quickfile-go
@@ -359,9 +363,16 @@ jobs:
               grep -q 'ucode -e' package/luci-app-daede/root/usr/share/luci-app-daede/config-backup.sh
               grep -q 'curl -fsSL' package/luci-app-daede/root/usr/share/luci-app-daede/update-geo.sh
               grep -q 'command -v curl' package/luci-app-daede/root/usr/share/luci-app-daede/proxy-check.sh
+              grep -Fq "localStorage.getItem('aurora.theme')" package/luci-theme-aurora/ucode/template/themes/aurora/header.ut
+              grep -Fq "document.documentElement.setAttribute('data-darkmode'" package/luci-theme-aurora/ucode/template/themes/aurora/header.ut
+              grep -Fq "document.documentElement.setAttribute('data-darkmode', 'true')" package/luci-app-daede/htdocs/luci-static/resources/view/daede/config.js
+              grep -Fq 'html[data-darkmode="true"] .dd-card' package/luci-app-daede/htdocs/luci-static/resources/view/daede/styles.js
+              grep -Fq 'No prefers-color-scheme dark block' package/luci-app-daede/htdocs/luci-static/resources/view/daede/styles.js
               awk '/^config BUSYBOX_DEFAULT_FLOCK$/ { found = 1; next } found && /^[[:space:]]*default y$/ { ok = 1 } found && /^config / { found = 0 } END { exit !ok }' package/utils/busybox/Config-defaults.in
               grep -Fq '+@KERNEL_XDP_SOCKETS' package/dae/Makefile
               grep -Fq '+@KERNEL_XDP_SOCKETS' package/daed/Makefile
+              require_config CONFIG_PACKAGE_dae
+              require_config CONFIG_DAE_USE_KERNEL_BTF
               require_config CONFIG_PACKAGE_daed
               require_config CONFIG_DAED_USE_KERNEL_BTF
               require_config CONFIG_PACKAGE_luci-app-daede

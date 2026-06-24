@@ -34,6 +34,84 @@ normalize_overlay_modes() {
   [ -d files/usr/sbin ] && find files/usr/sbin -type f -exec chmod 755 {} +
 }
 
+verify_theme_darkmode_hooks() {
+  local aurora_header="package/luci-theme-aurora/ucode/template/themes/aurora/header.ut"
+  local daede_config="package/luci-app-daede/htdocs/luci-static/resources/view/daede/config.js"
+  local daede_styles="package/luci-app-daede/htdocs/luci-static/resources/view/daede/styles.js"
+
+  grep -Fq "localStorage.getItem('aurora.theme')" "$aurora_header" || {
+    echo "ERROR: luci-theme-aurora theme storage hook is missing" >&2
+    exit 1
+  }
+  grep -Fq "document.documentElement.setAttribute('data-darkmode'" "$aurora_header" || {
+    echo "ERROR: luci-theme-aurora data-darkmode hook is missing" >&2
+    exit 1
+  }
+  grep -Fq "document.documentElement.setAttribute('data-darkmode', 'true')" "$daede_config" || {
+    echo "ERROR: luci-app-daede dark-mode detector is missing" >&2
+    exit 1
+  }
+  grep -Fq 'html[data-darkmode="true"] .dd-card' "$daede_styles" || {
+    echo "ERROR: luci-app-daede dark-mode styles are missing" >&2
+    exit 1
+  }
+  grep -Fq 'No prefers-color-scheme dark block' "$daede_styles" || {
+    echo "ERROR: luci-app-daede may force OS dark mode instead of LuCI theme state" >&2
+    exit 1
+  }
+}
+
+patch_quickfile_go() {
+  local initd="package/luci-app-quickfile-go/root/etc/init.d/quickfile-go"
+  local view="package/luci-app-quickfile-go/htdocs/luci-static/resources/view/quickfile-go.js"
+  local menu="package/luci-app-quickfile-go/root/usr/share/luci/menu.d/luci-app-quickfile-go.json"
+
+  perl -0pi -e '
+    s~(\tif \[ -z "\$listen_addr" \] \|\| \[ "\$listen_addr" = "auto" \]; then\R\t\tlisten_addr="\$\(uci -q get network\.lan\.ipaddr 2>/dev/null\)"\R\t\t\[ -n "\$listen_addr" \] \|\| listen_addr="192\.168\.1\.1"\R\tfi\R)~$1\tlisten_addr="\${listen_addr%%/*}"\n\t[ -n "\$listen_addr" ] || listen_addr="192.168.1.1"\n~ or die "quickfile-go init script anchor not found\n";
+  ' "$initd"
+
+  perl -0pi -e '
+    BEGIN {
+      $helper = q~
+function defaultQuickFileTheme() {
+    const saved = localStorage.getItem("quickfileGoTheme");
+    if (saved === "light" || saved === "dark") return saved;
+    const root = document.documentElement;
+    if (root && root.getAttribute("data-darkmode") === "false") return "light";
+    if (root && root.getAttribute("data-darkmode") === "true") return "dark";
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function saveQuickFileTheme(theme) {
+    if (theme === "light" || theme === "dark") localStorage.setItem("quickfileGoTheme", theme);
+}
+~;
+    }
+    s/\Rreturn view\.extend\(\{\R/\n$helper\nreturn view.extend({\n/ or die "quickfile-go theme helper anchor not found\n";
+    s/    theme: \x27dark\x27,/    theme: defaultQuickFileTheme(),/ or die "quickfile-go theme property anchor not found\n";
+    s/this\.theme = this\.theme === \x27dark\x27 \? \x27light\x27 : \x27dark\x27; this\.refresh\(this\.currentPath\);/this.theme = this.theme === "dark" ? "light" : "dark"; saveQuickFileTheme(this.theme); this.refresh(this.currentPath);/ or die "quickfile-go theme toggle anchor not found\n";
+  ' "$view"
+
+  perl -0pi -e 's/"title": "QuickFile-Go"/"title": "\\u6587\\u4ef6\\u7ba1\\u7406"/ or die "quickfile-go menu title anchor not found\n";' "$menu"
+
+  grep -Fq 'listen_addr="${listen_addr%%/*}"' "$initd" || {
+    echo "ERROR: quickfile-go init script does not strip CIDR from listen_addr" >&2
+    exit 1
+  }
+  grep -Fq 'localStorage.getItem("quickfileGoTheme")' "$view" || {
+    echo "ERROR: quickfile-go theme persistence patch is missing" >&2
+    exit 1
+  }
+  grep -Fq "data-darkmode" "$view" || {
+    echo "ERROR: quickfile-go theme patch no longer follows LuCI dark mode" >&2
+    exit 1
+  }
+  grep -Fq '"title": "\u6587\u4ef6\u7ba1\u7406"' "$menu" || {
+    echo "ERROR: quickfile-go menu title patch is missing" >&2
+    exit 1
+  }
+}
+
 inject_quickfile_go() {
   echo "Injecting luci-app-quickfile-go (pinned commit)"
 
@@ -61,6 +139,7 @@ inject_quickfile_go() {
     package/luci-app-quickfile-go/Makefile \
     "$quickfile_go_makefile_sha256" \
     "luci-app-quickfile-go Makefile"
+  patch_quickfile_go
 
   grep -q '^PKG_NAME:=luci-app-quickfile-go$' package/luci-app-quickfile-go/Makefile || {
     echo "ERROR: unexpected luci-app-quickfile-go package name" >&2
@@ -296,6 +375,7 @@ inject_quickfile_go
 
 if [ "$VARIANT" = "core-daede" ]; then
   inject_daede
+  verify_theme_darkmode_hooks
   refresh_package_metadata
   exit 0
 fi
