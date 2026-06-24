@@ -47,11 +47,23 @@ verify_theme_darkmode_hooks() {
     echo "ERROR: luci-theme-aurora data-darkmode hook is missing" >&2
     exit 1
   }
-  grep -Fq "document.documentElement.setAttribute('data-darkmode', 'true')" "$daede_config" || {
-    echo "ERROR: luci-app-daede dark-mode detector is missing" >&2
+  grep -Fq "document.documentElement.setAttribute('data-daede-darkmode', 'true')" "$daede_config" || {
+    echo "ERROR: luci-app-daede page-scoped dark-mode detector is missing" >&2
     exit 1
   }
-  grep -Fq 'html[data-darkmode="true"] .dd-card' "$daede_styles" || {
+  grep -Fq "document.documentElement.getAttribute('data-darkmode') === 'true'" "$daede_config" || {
+    echo "ERROR: luci-app-daede no longer follows LuCI theme state" >&2
+    exit 1
+  }
+  if grep -Fq '0.299 * m[0]' "$daede_config"; then
+    echo "ERROR: luci-app-daede still uses brittle RGB brightness detection" >&2
+    exit 1
+  fi
+  if grep -Fq "document.documentElement.setAttribute('data-darkmode', 'true')" "$daede_config"; then
+    echo "ERROR: luci-app-daede must not force global LuCI data-darkmode" >&2
+    exit 1
+  fi
+  grep -Fq 'html[data-daede-darkmode="true"] .dd-card' "$daede_styles" || {
     echo "ERROR: luci-app-daede dark-mode styles are missing" >&2
     exit 1
   }
@@ -74,22 +86,146 @@ patch_quickfile_go() {
     BEGIN {
       $helper = q~
 function defaultQuickFileTheme() {
-    const saved = localStorage.getItem("quickfileGoTheme");
-    if (saved === "light" || saved === "dark") return saved;
     const root = document.documentElement;
-    if (root && root.getAttribute("data-darkmode") === "false") return "light";
     if (root && root.getAttribute("data-darkmode") === "true") return "dark";
-    return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-}
-
-function saveQuickFileTheme(theme) {
-    if (theme === "light" || theme === "dark") localStorage.setItem("quickfileGoTheme", theme);
+    return "light";
 }
 ~;
     }
     s/\Rreturn view\.extend\(\{\R/\n$helper\nreturn view.extend({\n/ or die "quickfile-go theme helper anchor not found\n";
     s/    theme: \x27dark\x27,/    theme: defaultQuickFileTheme(),/ or die "quickfile-go theme property anchor not found\n";
-    s/this\.theme = this\.theme === \x27dark\x27 \? \x27light\x27 : \x27dark\x27; this\.refresh\(this\.currentPath\);/this.theme = this.theme === "dark" ? "light" : "dark"; saveQuickFileTheme(this.theme); this.refresh(this.currentPath);/ or die "quickfile-go theme toggle anchor not found\n";
+    s/this\.theme = this\.theme === \x27dark\x27 \? \x27light\x27 : \x27dark\x27; this\.refresh\(this\.currentPath\);/this.theme = this.theme === "dark" ? "light" : "dark"; this.refresh(this.currentPath);/ or die "quickfile-go theme toggle anchor not found\n";
+  ' "$view"
+
+  perl -0pi -e '
+    BEGIN {
+      $aurora = q~
+        /* Aurora theme bridge: keep QuickFile-Go visually inside LuCI instead of
+           carrying its upstream Element-style hard-coded palette. */
+        .qf-app {
+            background: transparent !important;
+            color: var(--text, #141822) !important;
+            font-family: var(--font-sans, "Lato", ui-sans-serif, system-ui, sans-serif) !important;
+        }
+        .qf-header, .qf-card, .qf-toolbar,
+        .qf-dialog, .qf-settings-panel, .qf-confirm-dialog,
+        .qf-settings-dialog, .qf-install-dialog, .qf-editor-dialog,
+        .qf-terminal-dialog, .qf-task-row {
+            background: var(--surface, #fff) !important;
+            color: var(--text, #141822) !important;
+            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
+            box-shadow: none !important;
+        }
+        .qf-header, .qf-card {
+            border: 1px solid var(--hairline, rgba(20,24,34,.08)) !important;
+            border-radius: 8px !important;
+        }
+        .qf-toolbar {
+            border-bottom: 1px solid var(--hairline, rgba(20,24,34,.08)) !important;
+        }
+        .qf-logo, .qf-item-name, .qf-grid.qf-list-view .qf-item-name,
+        .qf-task-title, .qf-confirm-message, .qf-install-status {
+            color: var(--text, #141822) !important;
+        }
+        .qf-header-right, .qf-breadcrumb, .qf-item-meta,
+        .qf-grid.qf-list-view .qf-item-meta,
+        .qf-grid.qf-list-view .qf-col-time,
+        .qf-grid.qf-list-view .qf-col-mode,
+        .qf-empty, .qf-settings-note, .qf-task-meta,
+        .qf-form-help, .qf-download-path, .qf-install-actions-left {
+            color: var(--text-muted, #5f636b) !important;
+        }
+        .qf-header-right span:hover, .qf-breadcrumb span.qf-bc-link:hover,
+        .qf-list-header span[data-sort]:hover, .qf-menu-item:hover {
+            color: var(--brand, #46a3d1) !important;
+        }
+        .qf-btn, .qf-confirm-cancel, .qf-terminal-action {
+            background: var(--surface, #fff) !important;
+            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
+            color: var(--text, #141822) !important;
+            border-radius: 8px !important;
+            box-shadow: none !important;
+        }
+        .qf-btn:hover, .qf-confirm-cancel:hover, .qf-terminal-action:hover {
+            background: var(--surface-sunken, #f0f1f3) !important;
+            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
+            color: var(--brand, #46a3d1) !important;
+        }
+        .qf-btn-primary, .qf-confirm-ok, .qf-install-dot {
+            background: var(--brand, #46a3d1) !important;
+            border-color: var(--brand, #46a3d1) !important;
+            color: var(--on-brand, #fff) !important;
+        }
+        .qf-btn-danger-text, .qf-form-error, .qf-install-status.fail,
+        .qf-menu-item[style*="f56c6c"] {
+            color: var(--danger, #6c1517) !important;
+        }
+        .qf-btn:disabled, .qf-btn.disabled {
+            background: var(--surface-sunken, #f0f1f3) !important;
+            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
+            color: var(--text-subtle, #7e8188) !important;
+        }
+        .qf-btn-icon {
+            display: none !important;
+        }
+        .qf-search-box, .qf-settings-field input, .qf-settings-field select,
+        .qf-form-input, .qf-download-path, .qf-confirm-target,
+        .qf-install-meta, .qf-install-log, .qf-editor-host,
+        .qf-editor, .qf-terminal-status {
+            background: var(--surface-sunken, #f0f1f3) !important;
+            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
+            color: var(--text, #141822) !important;
+        }
+        .qf-search-box input {
+            color: var(--text, #141822) !important;
+        }
+        .qf-settings-field input:focus, .qf-settings-field select:focus,
+        .qf-form-input:focus {
+            border-color: var(--brand, #46a3d1) !important;
+            box-shadow: 0 0 0 2px var(--focus-ring, rgba(70,163,209,.35)) !important;
+        }
+        .qf-list-header {
+            background: var(--surface, #fff) !important;
+            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
+            color: var(--text-muted, #5f636b) !important;
+        }
+        .qf-grid.qf-list-view .qf-item {
+            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
+        }
+        .qf-item:hover, .qf-menu-item:hover {
+            background: var(--surface-sunken, #f0f1f3) !important;
+        }
+        .qf-item.selected, .qf-item.context-target,
+        .qf-app.drag-over {
+            background: var(--brand-subtle, #e0eaf2) !important;
+            border-color: var(--brand, #46a3d1) !important;
+        }
+        .qf-context-menu {
+            background: var(--surface-overlay, var(--surface, #fff)) !important;
+            color: var(--text, #141822) !important;
+            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
+            box-shadow: var(--app-shadow-md, 0 4px 16px rgba(0,0,0,.08)) !important;
+            border-radius: 8px !important;
+        }
+        .qf-menu-separator, .qf-settings-actions,
+        .qf-dialog-header, .qf-dialog-footer,
+        .qf-confirm-dialog .qf-dialog-footer,
+        .qf-install-dialog .qf-dialog-footer,
+        .qf-editor-dialog .qf-dialog-footer {
+            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
+        }
+        .qf-overlay {
+            background: var(--scrim, rgba(0,0,0,.6)) !important;
+        }
+        .qf-thumb {
+            background: var(--surface-sunken, #f0f1f3) !important;
+            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
+        }
+~;
+    }
+    s/(\n\s*`;\R\s*document\.head\.appendChild\(E\(\x27style\x27, \{ id: \x27qf-custom-css\x27 \}, css\)\);\R)/\n$aurora$1/ or die "quickfile-go Aurora style anchor not found\n";
+    s/this\.theme === \x27light\x27 \? \x27.*?深色模式\x27 : \x27.*?浅色模式\x27/this.theme === \x27light\x27 ? \x27深色模式\x27 : \x27浅色模式\x27/ or die "quickfile-go theme label anchor not found\n";
+    s/const logoIcon = this\.makeIcon\(`(<svg viewBox="0 0 1024 1024" width="22" height="22"><path[^`]+fill=")#409eff("[^`]+)`\);/const logoIcon = this.makeIcon(`$1currentColor$2`);/ or die "quickfile-go logo icon anchor not found\n";
   ' "$view"
 
   perl -0pi -e 's/"title": "QuickFile-Go"/"title": "\\u6587\\u4ef6\\u7ba1\\u7406"/ or die "quickfile-go menu title anchor not found\n";' "$menu"
@@ -98,16 +234,83 @@ function saveQuickFileTheme(theme) {
     echo "ERROR: quickfile-go init script does not strip CIDR from listen_addr" >&2
     exit 1
   }
-  grep -Fq 'localStorage.getItem("quickfileGoTheme")' "$view" || {
-    echo "ERROR: quickfile-go theme persistence patch is missing" >&2
+  if grep -Fq "quickfileGoTheme" "$view"; then
+    echo "ERROR: quickfile-go theme state must not persist after leaving the page" >&2
     exit 1
-  }
+  fi
   grep -Fq "data-darkmode" "$view" || {
     echo "ERROR: quickfile-go theme patch no longer follows LuCI dark mode" >&2
     exit 1
   }
+  grep -Fq "Aurora theme bridge" "$view" || {
+    echo "ERROR: quickfile-go Aurora theme bridge is missing" >&2
+    exit 1
+  }
+  grep -Fq 'fill="currentColor"' "$view" || {
+    echo "ERROR: quickfile-go logo icon no longer follows text color" >&2
+    exit 1
+  }
+  if grep -Fq '🌙 深色模式' "$view" || grep -Fq '☀ 浅色模式' "$view"; then
+    echo "ERROR: quickfile-go theme toggle still uses standalone emoji labels" >&2
+    exit 1
+  fi
   grep -Fq '"title": "\u6587\u4ef6\u7ba1\u7406"' "$menu" || {
     echo "ERROR: quickfile-go menu title patch is missing" >&2
+    exit 1
+  }
+}
+
+patch_daede_theme() {
+  local config="package/luci-app-daede/htdocs/luci-static/resources/view/daede/config.js"
+  local styles="package/luci-app-daede/htdocs/luci-static/resources/view/daede/styles.js"
+
+  perl -0pi -e '
+    BEGIN {
+      $scoped = qq~\t\t/* Keep daede dark styles scoped to this page; Aurora exposes\n\t\t   the current LuCI theme state through html[data-darkmode]. */\n\t\ttry {\n\t\t\tif (document.documentElement.getAttribute(\x27data-darkmode\x27) === \x27true\x27)\n\t\t\t\tdocument.documentElement.setAttribute(\x27data-daede-darkmode\x27, \x27true\x27);\n\t\t} catch (e) {}\n~;
+    }
+    s~(document\.documentElement\.setAttribute\(\x27data-daede-theme\x27, /\\\/argon\\\//\.test\(themeHref\) \? \x27argon\x27 : \x27bootstrap\x27\);\R)~$1\t\tdocument.documentElement.removeAttribute(\x27data-daede-darkmode\x27);\n~ or die "daede theme anchor not found\n";
+    s~\t\t/\* themes signal dark differently.*?\t\t\} catch \(e\) \{\}\R~$scoped~s or die "daede dark-mode block anchor not found\n";
+  ' "$config"
+
+  perl -0pi -e '
+    s/html\[data-darkmode="true"\]/html[data-daede-darkmode="true"]/g;
+    s/by data-darkmode \(config\.js reads the real page background\)/by data-daede-darkmode (config.js reads the real page background)/;
+    s/border-radius:10px/border-radius:8px/g;
+    s/background:linear-gradient\(#3886a1,#2f7288\);color:#fff/background:var(--brand,#46a3d1);color:var(--on-brand,#fff)/g;
+    s/border-color:#4aa065 !important;color:#4aa065 !important/border-color:var(--brand,#46a3d1) !important;color:var(--brand,#46a3d1) !important/g;
+    s/border-color:rgba\(56,134,161,\.7\);outline:0;box-shadow:0 0 0 2px rgba\(56,134,161,\.15\)/border-color:var(--brand,#46a3d1);outline:0;box-shadow:0 0 0 2px var(--focus-ring,rgba(70,163,209,.35))/g;
+  ' "$styles"
+
+  grep -Fq "document.documentElement.setAttribute('data-daede-darkmode', 'true')" "$config" || {
+    echo "ERROR: luci-app-daede page-scoped dark-mode patch is missing" >&2
+    exit 1
+  }
+  grep -Fq "document.documentElement.getAttribute('data-darkmode') === 'true'" "$config" || {
+    echo "ERROR: luci-app-daede no longer follows LuCI theme state" >&2
+    exit 1
+  }
+  if grep -Fq '0.299 * m[0]' "$config"; then
+    echo "ERROR: luci-app-daede still uses brittle RGB brightness detection" >&2
+    exit 1
+  fi
+  if grep -Fq "document.documentElement.setAttribute('data-darkmode', 'true')" "$config"; then
+    echo "ERROR: luci-app-daede still forces global LuCI data-darkmode" >&2
+    exit 1
+  fi
+  grep -Fq 'html[data-daede-darkmode="true"] .dd-card' "$styles" || {
+    echo "ERROR: luci-app-daede page-scoped dark-mode styles are missing" >&2
+    exit 1
+  }
+  grep -Fq 'border-radius:8px' "$styles" || {
+    echo "ERROR: luci-app-daede card radius was not aligned with Aurora" >&2
+    exit 1
+  }
+  if grep -Fq 'linear-gradient(#3886a1,#2f7288)' "$styles"; then
+    echo "ERROR: luci-app-daede still uses a hard-coded active backend gradient" >&2
+    exit 1
+  fi
+  grep -Fq 'background:var(--brand,#46a3d1)' "$styles" || {
+    echo "ERROR: luci-app-daede active backend no longer follows Aurora brand color" >&2
     exit 1
   }
 }
@@ -203,6 +406,7 @@ inject_daede() {
   require_file_sha256 package/dae/Makefile "$dae_makefile_sha256" "dae Makefile"
   require_file_sha256 package/daed/Makefile "$daed_makefile_sha256" "daed Makefile"
   require_file_sha256 package/luci-app-daede/Makefile "$luci_app_daede_makefile_sha256" "luci-app-daede Makefile"
+  patch_daede_theme
 
   grep -q '^PKG_NAME:=dae$' package/dae/Makefile || {
     echo "ERROR: unexpected dae package name" >&2

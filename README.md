@@ -31,13 +31,13 @@
 | `core-daede` | eBPF 代理实验版 | 在 `core` 基础上替换为固定 commit 的 `kenzok8/openwrt-daede`，包含 `dae`、`daed` 和 `luci-app-daede`；默认选择 `daed` backend；文件管理同样使用 QuickFile-Go |
 | `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、QuickFile-Go、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
 
-`core-daede.config` 是在 `core.config` 上叠加的实验配置；`luci-app-daede` 默认选择 `daed` backend，同时显式安装 `dae`，因为上游 daede 页面仍会调用 `/usr/bin/dae` 做 DSL 校验和版本检测；不再保留旧 `luci-app-dae` / `luci-app-daed` 入口和本项目自写的 DAE 控制、编辑、日志补丁。上游 daede 的 LuCI 辅助脚本会直接调用 `curl`、`uclient-fetch` 和 `ucode`，本项目在该变体中显式保留并体检这些工具，同时核对 BusyBox 默认提供 `flock`。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daede.config`，避免同时包含两套代理方案。
+`core-daede.config` 是在 `core.config` 上叠加的实验配置；`luci-app-daede` 默认选择 `daed` backend，同时显式安装 `dae`，因为上游 daede 页面仍会调用 `/usr/bin/dae` 做 DSL 校验和版本检测；不再保留旧 `luci-app-dae` / `luci-app-daed` 入口和本项目自写的 DAE 控制、编辑、日志补丁。上游 daede 的 LuCI 辅助脚本会直接调用 `curl`、`uclient-fetch` 和 `ucode`，本项目在该变体中显式保留并体检这些工具，同时核对 BusyBox 默认提供 `flock`。构建脚本会把 daede 深色样式限定在页面内，避免进入 daede 后改写全局 LuCI 深浅色状态，并让关键按钮、圆角和焦点色跟随 Aurora 主题变量。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daede.config`，避免同时包含两套代理方案。
 
 上游 LiBwrt `main-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。实机 QWRT/iStoreOS 分区布局使用 eMMC GPT，board id 为 `jdcloud,ax1800-pro`，HLOS/HLOS_1 为 12 MiB；构建脚本会在编译阶段把上游 recipe 的 kernel slot 从 6 MiB 调整到 12 MiB，并加入该兼容 ID。
 
 当前上游 LuCI feeds 不提供旧包名 `luci-app-filetransfer`；本项目默认使用固定 commit 的 `home16668/luci-app-quickfile-go` 覆盖 LuCI 文件上传、下载和管理场景。
 
-QuickFile-Go 使用 Go 后端和 LuCI session 校验，不依赖 nginx，也不使用旧 QuickFile 预编译二进制。上游默认终端功能为开启，本项目首启会把 `quickfile-go.main.enable_terminal` 设为 `0`，文件管理服务仍在 LAN 侧可用。构建脚本会对固定上游包做最小补丁：监听地址从 `network.lan.ipaddr` 取值时裁掉 CIDR 后缀，页面主题默认跟随 LuCI/Aurora 深浅色并记住用户手动切换，只把 LuCI 菜单标题改为“文件管理”，页面内部显示保持上游默认。QuickFile-Go 具备较强的文件管理能力，请不要把 LuCI 管理口暴露到 WAN。
+QuickFile-Go 使用 Go 后端和 LuCI session 校验，不依赖 nginx，也不使用旧 QuickFile 预编译二进制。上游默认终端功能为开启，本项目首启会把 `quickfile-go.main.enable_terminal` 设为 `0`，文件管理服务仍在 LAN 侧可用。构建脚本会对固定上游包做最小补丁：监听地址从 `network.lan.ipaddr` 取值时裁掉 CIDR 后缀，页面主题默认跟随 LuCI/Aurora 当前深浅色但不持久化，只把 LuCI 菜单标题改为“文件管理”，页面内部显示保持上游默认，并注入一层 Aurora 主题兼容样式，覆盖上游硬编码的独立 Web App 配色。QuickFile-Go 具备较强的文件管理能力，请不要把 LuCI 管理口暴露到 WAN。
 
 ## 使用 GitHub Actions 编译
 
