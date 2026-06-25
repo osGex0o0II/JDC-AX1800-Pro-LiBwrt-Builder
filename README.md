@@ -15,10 +15,11 @@
 - Qualcomm IPQ60xx NSS 硬件加速
 - 有线主路由取向，默认移除 ath11k Wi-Fi 相关包
 - BBR + fq，内建 `sch_fq`，避免启动早期 sysctl 失败
-- Aurora LuCI 主题，固定上游 commit
-- 默认包含 HomeProxy/sing-box；HomeProxy 构建时跟随上游 master，sing-box 构建时自动选择官方最新稳定版
+- Aurora LuCI 主题，构建时自动选择上游最新稳定 tag
+- 默认包含 HomeProxy/sing-box；HomeProxy 构建时优先选择上游最新稳定 tag，暂无稳定 tag 时跟随 master；sing-box 自动选择官方最新稳定版
+- NSS firmware 构建时从上游 nss-packages feed 自动选择当前可用最高版本
 - 默认包含 cpufreq、Samba、ZeroTier、ECM、DiskMan 和挂载支持
-- 提供 `core-daede` 实验变体，用于评估 dae/daed eBPF 透明代理，包源固定为 `kenzok8/openwrt-daede`
+- 提供 `core-daede` 实验变体，用于评估 dae/daed eBPF 透明代理，包源构建时自动选择 `kenzok8/openwrt-daede` 最新稳定 tag
 - GitHub Actions 自动编译、上传 artifact，并按日期合并发布 Release
 - Release 附带精简下载表、manifest、固件 SHA256、上游源码信息和最终配置摘要
 - 默认关闭 `ttyd`、packet steering 和 flow offloading，避免与 NSS 路径冲突
@@ -28,7 +29,7 @@
 | 变体 | 定位 | 主要内容 |
 |:---|:---|:---|
 | `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、DiskMan、挂载、USB 存储、CoreMark |
-| `core-daede` | eBPF 代理实验版 | 在 `core` 基础上替换为固定 commit 的 `kenzok8/openwrt-daede`，包含 `dae`、`daed` 和 `luci-app-daede`；默认选择 `daed` backend |
+| `core-daede` | eBPF 代理实验版 | 在 `core` 基础上替换为 `kenzok8/openwrt-daede` 最新稳定 tag，包含 `dae`、`daed` 和 `luci-app-daede`；默认选择 `daed` backend |
 | `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
 
 `core-daede.config` 是在 `core.config` 上叠加的实验配置；`luci-app-daede` 默认选择 `daed` backend，同时显式安装 `dae`，因为上游 daede 页面仍会调用 `/usr/bin/dae` 做 DSL 校验和版本检测；不再保留旧 `luci-app-dae` / `luci-app-daed` 入口和本项目自写的 DAE 控制、编辑、日志补丁。上游 daede 的 LuCI 辅助脚本会直接调用 `curl`、`uclient-fetch` 和 `ucode`，本项目在该变体中显式保留并体检这些工具，同时核对 BusyBox 默认提供 `flock`。构建脚本会把 daede 深色样式限定在页面内，避免进入 daede 后改写全局 LuCI 深浅色状态，并让关键按钮、圆角和焦点色跟随 Aurora 主题变量。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daede.config`，避免同时包含两套代理方案。
@@ -287,8 +288,8 @@ net.ipv4.tcp_congestion_control=bbr
 
 - 修改包选择时优先编辑 `configs/*.config`，不要直接改 Actions 里的包列表。
 - 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，daede 放 `files-daede/`，ultimate 存储下载增强相关放 `files-ultimate/`。
-- HomeProxy 和 sing-box 版本由 `scripts/diy.sh` 在构建时联网解析；构建摘要会记录实际 HomeProxy commit、sing-box 稳定 tag 和源码 SHA256。
-- 更新 `core-daede` 时，同步核对 `DAEDE_COMMIT`、`dae` / `daed` / `luci-app-daede` 的 Makefile SHA256、`PKG_VERSION` / `PKG_HASH` / backend 依赖，以及 `luci-app-daede` 辅助脚本使用的 `curl` / `uclient-fetch` / `ucode` / BusyBox applet，并优先在 `core-daede` 变体验证。
+- Aurora、HomeProxy、sing-box、openwrt-daede 和 NSS firmware 版本由 `scripts/diy.sh` 在构建时联网解析；构建摘要会记录实际 tag、commit、sing-box 源码 SHA256 和 Go 版本约束。
+- 更新 `core-daede` 时，同步核对 `dae` / `daed` / `luci-app-daede` 的 `PKG_VERSION` / `PKG_HASH` / backend 依赖，以及 `luci-app-daede` 辅助脚本使用的 `curl` / `uclient-fetch` / `ucode` / BusyBox applet，并优先在 `core-daede` 变体验证。
 - 更新第三方 GitHub Actions 时，建议继续固定到具体 commit SHA。
 
 ## 致谢

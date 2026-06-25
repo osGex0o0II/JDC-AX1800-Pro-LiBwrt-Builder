@@ -14,41 +14,101 @@ refresh_package_metadata() {
   rm -f tmp/info/.files-packageinfo.* tmp/info/.packageinfo-*
 }
 
-require_file_sha256() {
-  local path="$1"
-  local expected="$2"
-  local label="$3"
-  local computed
-
-  computed="$(sha256sum "$path" 2>/dev/null | awk '{print $1}')"
-  if [ "$computed" != "$expected" ]; then
-    echo "ERROR: ${label} SHA256 mismatch!" >&2
-    echo "  Expected: ${expected}" >&2
-    echo "  Got:      ${computed:-<file not found>}" >&2
-    exit 1
-  fi
-}
-
 normalize_overlay_modes() {
   [ -d files/etc/uci-defaults ] && find files/etc/uci-defaults -type f -exec chmod 755 {} +
   [ -d files/etc/init.d ] && find files/etc/init.d -type f -exec chmod 755 {} +
   [ -d files/etc/hotplug.d ] && find files/etc/hotplug.d -type f -exec chmod 755 {} +
   [ -d files/usr/sbin ] && find files/usr/sbin -type f -exec chmod 755 {} +
+  return 0
 }
 
-latest_stable_git_tag() {
+git_tag_names() {
   local repo="$1"
   git ls-remote --tags --refs "$repo" |
     awk '{print $2}' |
     sed 's#refs/tags/##' |
-    tr -d '\r' |
-    grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
-    sort -V |
-    tail -n 1
+    tr -d '\r'
+}
+
+latest_semver_git_tag() {
+  local repo="$1"
+  git_tag_names "$repo" |
+    sed -nE 's/^v([0-9]+)\.([0-9]+)\.([0-9]+)$/\1 \2 \3 &/p' |
+    sort -n -k1,1 -k2,2 -k3,3 |
+    awk 'END { print $4 }'
+}
+
+latest_date_git_tag() {
+  local repo="$1"
+  git_tag_names "$repo" |
+    sed -nE \
+      -e 's/^v([0-9]{4})\.([0-9]{2})\.([0-9]{2})$/\1 \2 \3 0 &/p' \
+      -e 's/^v([0-9]{4})\.([0-9]{2})\.([0-9]{2})\.([0-9]+)$/\1 \2 \3 \4 &/p' |
+    sort -n -k1,1 -k2,2 -k3,3 -k4,4 |
+    awk 'END { print $5 }'
+}
+
+makefile_value() {
+  local path="$1"
+  local key="$2"
+  awk -F':=' -v key="$key" '$1 == key { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit }' "$path"
+}
+
+append_github_env() {
+  [ -n "${GITHUB_ENV:-}" ] || return 0
+  printf '%s\n' "$@" >> "$GITHUB_ENV"
 }
 
 version_ge() {
-  [ "$1" = "$2" ] || [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n 1)" = "$2" ]
+  awk -v have="$1" -v need="$2" '
+    function splitver(v, a) {
+      split(v, a, /[.+_-]/)
+    }
+    BEGIN {
+      splitver(have, h)
+      splitver(need, n)
+      for (i = 1; i <= 4; i++) {
+        hv = (h[i] == "" ? 0 : h[i] + 0)
+        nv = (n[i] == "" ? 0 : n[i] + 0)
+        if (hv > nv) exit 0
+        if (hv < nv) exit 1
+      }
+      exit 0
+    }
+  '
+}
+
+latest_nss_firmware_symbol() {
+  local makefile="feeds/nss_packages/firmware/nss-firmware/Makefile"
+  [ -f "$makefile" ] || return 1
+  awk '/config NSS_FIRMWARE_VERSION_[0-9_]+/ { print $2 }' "$makefile" |
+    sed -E 's/^NSS_FIRMWARE_VERSION_([0-9]+)_([0-9]+)$/\1 \2 &/' |
+    sort -n -k1,1 -k2,2 |
+    awk 'END { print $3 }'
+}
+
+select_latest_nss_firmware() {
+  local symbol full_symbol
+
+  symbol="$(latest_nss_firmware_symbol || true)"
+  [ -n "$symbol" ] || {
+    echo "ERROR: failed to resolve latest NSS firmware version from nss-packages feed" >&2
+    exit 1
+  }
+  full_symbol="CONFIG_${symbol}"
+
+  if grep -q '^CONFIG_NSS_FIRMWARE_VERSION_[0-9_]*=y$' .config 2>/dev/null; then
+    sed -i -E 's/^CONFIG_(NSS_FIRMWARE_VERSION_[0-9_]*)=y$/# CONFIG_\1 is not set/' .config
+  fi
+  if grep -q "^# ${full_symbol} is not set$" .config 2>/dev/null; then
+    sed -i "s/^# ${full_symbol} is not set$/${full_symbol}=y/" .config
+  elif grep -q "^${full_symbol}=y$" .config 2>/dev/null; then
+    :
+  else
+    printf '%s=y\n' "$full_symbol" >> .config
+  fi
+  append_github_env "NSS_FIRMWARE_VERSION=${symbol#NSS_FIRMWARE_VERSION_}"
+  echo "Selected latest NSS firmware ${symbol#NSS_FIRMWARE_VERSION_}"
 }
 
 patch_sing_box_latest_stable() {
@@ -61,7 +121,7 @@ patch_sing_box_latest_stable() {
     exit 1
   }
 
-  latest_tag="$(latest_stable_git_tag https://github.com/SagerNet/sing-box.git)"
+  latest_tag="$(latest_semver_git_tag https://github.com/SagerNet/sing-box.git)"
   [ -n "$latest_tag" ] || {
     echo "ERROR: failed to resolve latest stable sing-box tag" >&2
     exit 1
@@ -139,15 +199,14 @@ patch_sing_box_latest_stable() {
   }
 
   if [ -n "${GITHUB_ENV:-}" ]; then
-    {
-      echo "SING_BOX_VERSION=${version}"
-      echo "SING_BOX_TAG=${latest_tag}"
-      echo "SING_BOX_SOURCE_SHA256=${hash}"
-      echo "SING_BOX_SOURCE_FILE=sing-box-${version}.tar.gz"
-      echo "SING_BOX_GO_VERSION=${sing_box_go_version}"
-      echo "OPENWRT_GO_VERSION=${openwrt_go_version}"
-      echo "SING_BOX_FEED_VERSION=${original_version:-unknown}"
-    } >> "$GITHUB_ENV"
+    append_github_env \
+      "SING_BOX_VERSION=${version}" \
+      "SING_BOX_TAG=${latest_tag}" \
+      "SING_BOX_SOURCE_SHA256=${hash}" \
+      "SING_BOX_SOURCE_FILE=sing-box-${version}.tar.gz" \
+      "SING_BOX_GO_VERSION=${sing_box_go_version}" \
+      "OPENWRT_GO_VERSION=${openwrt_go_version}" \
+      "SING_BOX_FEED_VERSION=${original_version:-unknown}"
   fi
 
   echo "sing-box updated from feed ${original_version:-unknown} to latest stable ${version} (${hash}); Go ${openwrt_go_version} >= ${sing_box_go_version}"
@@ -248,7 +307,9 @@ patch_daede_theme() {
 }
 
 inject_daede() {
-  echo "Injecting openwrt-daede (pinned commit)"
+  local daede_tag daede_commit dae_version daed_version luci_app_daede_version
+
+  echo "Injecting openwrt-daede (latest stable tag)"
 
   rm -rf \
     package/dae \
@@ -263,56 +324,54 @@ inject_daede() {
     package/feeds/luci/luci-app-daed \
     package/feeds/luci/luci-app-daede
 
-  local daede_commit="0aeb278ce033b3ab2d50c7ba4e6d9fc74008dad8"
-  local dae_makefile_sha256="91a38f022c3abc6efed1fef1994e5a5785627541bcd25397ce46b0bb4ba2b40a"
-  local daed_makefile_sha256="83fac799c40bda2c714ee63145c5bdd0bff7b20132e926b6118d358efb3a5354"
-  local luci_app_daede_makefile_sha256="053045399c2f8c7b72ed436c530cef96bae5ce6f8749d6fa5326d05ceb29098e"
-  if [ -n "${GITHUB_ENV:-}" ]; then
-    echo "DAEDE_COMMIT=${daede_commit}" >> "$GITHUB_ENV"
-  fi
+  daede_tag="$(latest_date_git_tag https://github.com/kenzok8/openwrt-daede.git)"
+  [ -n "$daede_tag" ] || {
+    echo "ERROR: failed to resolve latest stable openwrt-daede tag" >&2
+    exit 1
+  }
 
-  git clone https://github.com/kenzok8/openwrt-daede package/openwrt-daede
-  git -C package/openwrt-daede -c advice.detachedHead=false checkout "$daede_commit"
+  git -c advice.detachedHead=false clone --depth 1 --branch "$daede_tag" https://github.com/kenzok8/openwrt-daede package/openwrt-daede
+  daede_commit="$(git -C package/openwrt-daede rev-parse HEAD)"
   mv package/openwrt-daede/dae package/dae
   mv package/openwrt-daede/daed package/daed
   mv package/openwrt-daede/luci-app-daede package/luci-app-daede
   rm -rf package/openwrt-daede
 
-  require_file_sha256 package/dae/Makefile "$dae_makefile_sha256" "dae Makefile"
-  require_file_sha256 package/daed/Makefile "$daed_makefile_sha256" "daed Makefile"
-  require_file_sha256 package/luci-app-daede/Makefile "$luci_app_daede_makefile_sha256" "luci-app-daede Makefile"
   patch_daede_theme
 
   grep -q '^PKG_NAME:=dae$' package/dae/Makefile || {
     echo "ERROR: unexpected dae package name" >&2
     exit 1
   }
-  grep -q '^PKG_VERSION:=2026.06.14$' package/dae/Makefile || {
-    echo "ERROR: unexpected dae package version" >&2
+  dae_version="$(makefile_value package/dae/Makefile PKG_VERSION)"
+  [ -n "$dae_version" ] || {
+    echo "ERROR: dae package version is missing" >&2
     exit 1
   }
-  grep -q '^PKG_HASH:=5bbbd017bffdf04d0357a4e487c5d108b983c29b231fa752de17ddda00b2b462$' package/dae/Makefile || {
-    echo "ERROR: unexpected dae source hash" >&2
+  [ -n "$(makefile_value package/dae/Makefile PKG_HASH)" ] || {
+    echo "ERROR: dae source hash is missing" >&2
     exit 1
   }
   grep -q '^PKG_NAME:=daed$' package/daed/Makefile || {
     echo "ERROR: unexpected daed package name" >&2
     exit 1
   }
-  grep -q '^PKG_VERSION:=2026.06.14$' package/daed/Makefile || {
-    echo "ERROR: unexpected daed package version" >&2
+  daed_version="$(makefile_value package/daed/Makefile PKG_VERSION)"
+  [ -n "$daed_version" ] || {
+    echo "ERROR: daed package version is missing" >&2
     exit 1
   }
-  grep -q '^PKG_HASH:=eeba8db775d248ce06f34adda7a392548c78a1d9d11d9a162e0ab41d5cc216d6$' package/daed/Makefile || {
-    echo "ERROR: unexpected daed source hash" >&2
+  [ -n "$(makefile_value package/daed/Makefile PKG_HASH)" ] || {
+    echo "ERROR: daed source hash is missing" >&2
     exit 1
   }
   grep -q '^PKG_NAME:=luci-app-daede$' package/luci-app-daede/Makefile || {
     echo "ERROR: unexpected luci-app-daede package name" >&2
     exit 1
   }
-  grep -q '^PKG_VERSION:=1.14.7$' package/luci-app-daede/Makefile || {
-    echo "ERROR: unexpected luci-app-daede package version" >&2
+  luci_app_daede_version="$(makefile_value package/luci-app-daede/Makefile PKG_VERSION)"
+  [ -n "$luci_app_daede_version" ] || {
+    echo "ERROR: luci-app-daede package version is missing" >&2
     exit 1
   }
   grep -Fq 'default PACKAGE_$(PKG_NAME)_daed' package/luci-app-daede/Makefile || {
@@ -348,7 +407,14 @@ inject_daede() {
     exit 1
   }
 
-  echo "openwrt-daede source verified (commit ${daede_commit})"
+  append_github_env \
+    "DAEDE_TAG=${daede_tag}" \
+    "DAEDE_COMMIT=${daede_commit}" \
+    "DAE_VERSION=${dae_version}" \
+    "DAED_VERSION=${daed_version}" \
+    "LUCI_APP_DAEDE_VERSION=${luci_app_daede_version}"
+
+  echo "openwrt-daede source verified (${daede_tag} commit ${daede_commit}; dae ${dae_version}, daed ${daed_version}, luci-app-daede ${luci_app_daede_version})"
 }
 
 # -- Dynamic kernel version detection --
@@ -357,6 +423,7 @@ KERNEL_VER="${KERNEL_VER:-6.12}"
 KERNEL_CFG="target/linux/qualcommax/config-${KERNEL_VER}"
 echo "Detected kernel ${KERNEL_VER} (config: ${KERNEL_CFG})"
 normalize_overlay_modes
+select_latest_nss_firmware
 
 # The retail AX1800 Pro layout seen on QWRT/iStoreOS uses 12 MiB HLOS slots
 # and reports board id jdcloud,ax1800-pro. LiBwrt's RE-SS-01 recipe is the
@@ -437,18 +504,23 @@ Commit: ${SOURCE_COMMIT:-unknown}
 Kernel: ${KERNEL_VER}
 EOF
 
-# -- Inject Aurora theme (pinned commit) --
+# -- Inject Aurora theme --
 rm -rf package/luci-theme-aurora
-AURORA_COMMIT="4f5ef09d1523773db1314c918d48744a5c518b28"
-if [ -n "${GITHUB_ENV:-}" ]; then
-  echo "AURORA_COMMIT=${AURORA_COMMIT}" >> "$GITHUB_ENV"
-fi
-if ! git clone https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora; then
+AURORA_TAG="$(latest_semver_git_tag https://github.com/eamonxg/luci-theme-aurora.git)"
+[ -n "$AURORA_TAG" ] || {
+  echo "ERROR: failed to resolve latest stable luci-theme-aurora tag" >&2
+  exit 1
+}
+if ! git -c advice.detachedHead=false clone --depth 1 --branch "$AURORA_TAG" https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora; then
   rm -rf package/luci-theme-aurora
   echo "ERROR: Failed to clone luci-theme-aurora" >&2
   exit 1
 fi
-git -C package/luci-theme-aurora -c advice.detachedHead=false checkout "$AURORA_COMMIT"
+AURORA_COMMIT="$(git -C package/luci-theme-aurora rev-parse HEAD)"
+append_github_env \
+  "AURORA_TAG=${AURORA_TAG}" \
+  "AURORA_COMMIT=${AURORA_COMMIT}"
+echo "luci-theme-aurora source verified (${AURORA_TAG} commit ${AURORA_COMMIT})"
 
 if [ "$VARIANT" = "core-daede" ]; then
   inject_daede
@@ -460,23 +532,31 @@ fi
 patch_sing_box_latest_stable
 
 # -- Inject HomeProxy --
-echo "Injecting HomeProxy (latest master)"
+echo "Injecting HomeProxy (latest stable tag, or latest master when upstream has no stable tags)"
 
 rm -rf \
   feeds/luci/applications/luci-app-homeproxy \
   package/feeds/luci/luci-app-homeproxy \
   package/luci-app-homeproxy
 
-git clone --depth 1 https://github.com/immortalwrt/homeproxy feeds/luci/applications/luci-app-homeproxy
+HOMEPROXY_TAG="$(latest_semver_git_tag https://github.com/immortalwrt/homeproxy.git)"
+if [ -n "$HOMEPROXY_TAG" ]; then
+  git -c advice.detachedHead=false clone --depth 1 --branch "$HOMEPROXY_TAG" https://github.com/immortalwrt/homeproxy feeds/luci/applications/luci-app-homeproxy
+  HOMEPROXY_SOURCE="stable-tag"
+else
+  git clone --depth 1 https://github.com/immortalwrt/homeproxy feeds/luci/applications/luci-app-homeproxy
+  HOMEPROXY_SOURCE="master"
+fi
 mkdir -p package/feeds/luci
 ln -s ../../../feeds/luci/applications/luci-app-homeproxy package/feeds/luci/luci-app-homeproxy
 HOMEPROXY_COMMIT="$(git -C feeds/luci/applications/luci-app-homeproxy rev-parse HEAD)"
-HOMEPROXY_BRANCH="$(git -C feeds/luci/applications/luci-app-homeproxy rev-parse --abbrev-ref HEAD)"
+HOMEPROXY_REF="$(git -C feeds/luci/applications/luci-app-homeproxy rev-parse --abbrev-ref HEAD)"
 if [ -n "${GITHUB_ENV:-}" ]; then
-  {
-    echo "HOMEPROXY_COMMIT=${HOMEPROXY_COMMIT}"
-    echo "HOMEPROXY_BRANCH=${HOMEPROXY_BRANCH}"
-  } >> "$GITHUB_ENV"
+  append_github_env \
+    "HOMEPROXY_SOURCE=${HOMEPROXY_SOURCE}" \
+    "HOMEPROXY_TAG=${HOMEPROXY_TAG:-not-available}" \
+    "HOMEPROXY_COMMIT=${HOMEPROXY_COMMIT}" \
+    "HOMEPROXY_REF=${HOMEPROXY_REF}"
 fi
 
 grep -q '^LUCI_TITLE:=The modern ImmortalWrt proxy platform' feeds/luci/applications/luci-app-homeproxy/Makefile || {
@@ -491,7 +571,7 @@ grep -q '+sing-box' feeds/luci/applications/luci-app-homeproxy/Makefile || {
   echo "ERROR: HomeProxy no longer depends on sing-box" >&2
   exit 1
 }
-echo "HomeProxy source verified (latest ${HOMEPROXY_BRANCH} commit ${HOMEPROXY_COMMIT})"
+echo "HomeProxy source verified (${HOMEPROXY_SOURCE} ${HOMEPROXY_TAG:-${HOMEPROXY_REF}} commit ${HOMEPROXY_COMMIT})"
 
 refresh_package_metadata
 exit 0

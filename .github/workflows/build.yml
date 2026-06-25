@@ -196,7 +196,6 @@ jobs:
           dos2unix scripts/diy.sh
           chmod +x scripts/diy.sh
           cd "$OPENWRT_PATH"
-          "$GITHUB_WORKSPACE/scripts/diy.sh" "${{ matrix.variant }}"
           case "${{ matrix.variant }}" in
             core)
               cp "$GITHUB_WORKSPACE/configs/core.config" .config
@@ -208,6 +207,7 @@ jobs:
               cat "$GITHUB_WORKSPACE/configs/core.config" "$GITHUB_WORKSPACE/configs/ultimate.config" > .config
               ;;
           esac
+          "$GITHUB_WORKSPACE/scripts/diy.sh" "${{ matrix.variant }}"
 
       - name: Download packages
         run: |
@@ -233,6 +233,17 @@ jobs:
             fi
             echo "OK: ${symbol} is not enabled"
           }
+          require_nss_firmware_version() {
+            selected="$(awk -F= '/^CONFIG_NSS_FIRMWARE_VERSION_[0-9_]+=y$/ { print $1; exit }' .config)"
+            if [ -n "$selected" ]; then
+              echo "OK: ${selected}=y"
+              echo "NSS_FIRMWARE_VERSION=${selected#CONFIG_NSS_FIRMWARE_VERSION_}" >> "$GITHUB_ENV"
+              return 0
+            fi
+            echo "::error::No NSS firmware version was selected by upstream defconfig" >&2
+            grep -Rho 'NSS_FIRMWARE_VERSION_[0-9_]*' package target 2>/dev/null | sort -u >&2 || true
+            exit 1
+          }
           require_recipe_patch() {
             image_mk="target/linux/qualcommax/image/ipq60xx.mk"
             awk '
@@ -252,7 +263,7 @@ jobs:
           require_config CONFIG_TARGET_ROOTFS_SQUASHFS
           require_config CONFIG_IPQ_MEM_PROFILE_512
           require_config CONFIG_NSS_MEM_PROFILE_MEDIUM
-          require_config CONFIG_NSS_FIRMWARE_VERSION_12_2
+          require_nss_firmware_version
           require_config CONFIG_PACKAGE_nss-firmware-ipq60xx
           require_config CONFIG_NSS_DRV_IGS_ENABLE
           require_config CONFIG_NSS_DRV_IPV6_ENABLE
@@ -284,6 +295,18 @@ jobs:
           require_config CONFIG_PACKAGE_block-mount
           require_config CONFIG_PACKAGE_blockd
           require_config CONFIG_PACKAGE_automount
+          test -n "${AURORA_TAG:-}" || {
+            echo "::error::Aurora latest stable tag was not exported" >&2
+            exit 1
+          }
+          test -n "${AURORA_COMMIT:-}" || {
+            echo "::error::Aurora commit was not exported" >&2
+            exit 1
+          }
+          test -f package/luci-theme-aurora/Makefile || {
+            echo "::error::Aurora theme source was not injected" >&2
+            exit 1
+          }
           test ! -e package/luci-app-quickfile-go
           test ! -e package/quickfile-go
           forbid_config CONFIG_PACKAGE_luci-app-quickfile
@@ -328,6 +351,10 @@ jobs:
                 echo "::error::HomeProxy commit was not exported" >&2
                 exit 1
               }
+              test -n "${HOMEPROXY_SOURCE:-}" || {
+                echo "::error::HomeProxy source type was not exported" >&2
+                exit 1
+              }
               test -n "${SING_BOX_VERSION:-}" || {
                 echo "::error::sing-box latest stable version was not exported" >&2
                 exit 1
@@ -360,15 +387,35 @@ jobs:
               test ! -e package/feeds/luci/luci-app-dae
               test ! -e package/feeds/luci/luci-app-daed
               test ! -e package/feeds/luci/luci-app-daede
-              echo "daede package source: kenzok8/openwrt-daede"
+              test -n "${DAEDE_TAG:-}" || {
+                echo "::error::openwrt-daede latest stable tag was not exported" >&2
+                exit 1
+              }
+              test -n "${DAEDE_COMMIT:-}" || {
+                echo "::error::openwrt-daede commit was not exported" >&2
+                exit 1
+              }
+              echo "daede package source: kenzok8/openwrt-daede ${DAEDE_TAG} @ ${DAEDE_COMMIT}"
               grep -q '^PKG_NAME:=dae$' package/dae/Makefile
-              grep -q '^PKG_VERSION:=2026.06.14$' package/dae/Makefile
-              grep -q '^PKG_HASH:=5bbbd017bffdf04d0357a4e487c5d108b983c29b231fa752de17ddda00b2b462$' package/dae/Makefile
+              test -n "${DAE_VERSION:-}" || {
+                echo "::error::dae package version was not exported" >&2
+                exit 1
+              }
+              grep -q "^PKG_VERSION:=${DAE_VERSION}$" package/dae/Makefile
+              grep -q '^PKG_HASH:=' package/dae/Makefile
               grep -q '^PKG_NAME:=daed$' package/daed/Makefile
-              grep -q '^PKG_VERSION:=2026.06.14$' package/daed/Makefile
-              grep -q '^PKG_HASH:=eeba8db775d248ce06f34adda7a392548c78a1d9d11d9a162e0ab41d5cc216d6$' package/daed/Makefile
+              test -n "${DAED_VERSION:-}" || {
+                echo "::error::daed package version was not exported" >&2
+                exit 1
+              }
+              grep -q "^PKG_VERSION:=${DAED_VERSION}$" package/daed/Makefile
+              grep -q '^PKG_HASH:=' package/daed/Makefile
               grep -q '^PKG_NAME:=luci-app-daede$' package/luci-app-daede/Makefile
-              grep -q '^PKG_VERSION:=1.14.7$' package/luci-app-daede/Makefile
+              test -n "${LUCI_APP_DAEDE_VERSION:-}" || {
+                echo "::error::luci-app-daede package version was not exported" >&2
+                exit 1
+              }
+              grep -q "^PKG_VERSION:=${LUCI_APP_DAEDE_VERSION}$" package/luci-app-daede/Makefile
               grep -Fq 'default PACKAGE_$(PKG_NAME)_daed' package/luci-app-daede/Makefile
               grep -Fq '+PACKAGE_$(PKG_NAME)_dae:dae +PACKAGE_$(PKG_NAME)_daed:daed' package/luci-app-daede/Makefile
               grep -q 'uclient-fetch' package/luci-app-daede/root/www/cgi-bin/daede-graphql
@@ -441,6 +488,10 @@ jobs:
               }
               test -n "${HOMEPROXY_COMMIT:-}" || {
                 echo "::error::HomeProxy commit was not exported" >&2
+                exit 1
+              }
+              test -n "${HOMEPROXY_SOURCE:-}" || {
+                echo "::error::HomeProxy source type was not exported" >&2
                 exit 1
               }
               test -n "${SING_BOX_VERSION:-}" || {
@@ -544,9 +595,13 @@ jobs:
               echo "ultimate.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/ultimate.config" | awk '{print $1}')"
             fi
             echo "DIY script SHA256: $(sha256sum "${GITHUB_WORKSPACE}/scripts/diy.sh" | awk '{print $1}')"
+            echo "NSS firmware version: ${NSS_FIRMWARE_VERSION:-unknown}"
+            echo "Aurora tag: ${AURORA_TAG:-unknown}"
             echo "Aurora commit: ${AURORA_COMMIT:-unknown}"
+            echo "HomeProxy source: ${HOMEPROXY_SOURCE:-not-included}"
+            echo "HomeProxy tag: ${HOMEPROXY_TAG:-not-included}"
             echo "HomeProxy commit: ${HOMEPROXY_COMMIT:-not-included}"
-            echo "HomeProxy branch: ${HOMEPROXY_BRANCH:-not-included}"
+            echo "HomeProxy ref: ${HOMEPROXY_REF:-not-included}"
             echo "sing-box feed version: ${SING_BOX_FEED_VERSION:-not-included}"
             echo "sing-box selected stable: ${SING_BOX_TAG:-not-included}"
             echo "sing-box source file: ${SING_BOX_SOURCE_FILE:-not-included}"
@@ -554,7 +609,10 @@ jobs:
             echo "sing-box required Go: ${SING_BOX_GO_VERSION:-not-included}"
             echo "OpenWrt feed Go: ${OPENWRT_GO_VERSION:-not-included}"
             if [ "${VARIANT}" = "core-daede" ]; then
-              echo "DAEDE package source: kenzok8/openwrt-daede @ ${DAEDE_COMMIT:-unknown}"
+              echo "DAEDE package source: kenzok8/openwrt-daede ${DAEDE_TAG:-unknown} @ ${DAEDE_COMMIT:-unknown}"
+              echo "dae version: ${DAE_VERSION:-unknown}"
+              echo "daed version: ${DAED_VERSION:-unknown}"
+              echo "luci-app-daede version: ${LUCI_APP_DAEDE_VERSION:-unknown}"
             else
               echo "DAEDE package source: not-included"
             fi
