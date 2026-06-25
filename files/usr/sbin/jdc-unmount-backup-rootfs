@@ -1,0 +1,36 @@
+#!/bin/sh
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+TAG="jdc-unmount-rootfs1"
+BACKUP_ROOTFS_DEV="/dev/mmcblk0p20"
+BACKUP_ROOTFS_MNT="/mnt/mmcblk0p20"
+
+log() {
+  logger -t "$TAG" "$*" 2>/dev/null || true
+  [ -t 1 ] && printf '%s\n' "$*"
+}
+
+is_backup_rootfs_mounted() {
+  awk -v dev="$BACKUP_ROOTFS_DEV" -v mnt="$BACKUP_ROOTFS_MNT" '
+    $1 == dev && $2 == mnt && $3 == "squashfs" { found = 1; exit }
+    END { exit found ? 0 : 1 }
+  ' /proc/mounts 2>/dev/null
+}
+
+is_backup_rootfs_mounted || exit 0
+
+if umount "$BACKUP_ROOTFS_MNT" 2>/dev/null; then
+  log "unmounted ${BACKUP_ROOTFS_DEV} from ${BACKUP_ROOTFS_MNT}"
+  rmdir "$BACKUP_ROOTFS_MNT" 2>/dev/null || true
+  exit 0
+fi
+
+if umount -l "$BACKUP_ROOTFS_MNT" 2>/dev/null; then
+  log "lazy-unmounted ${BACKUP_ROOTFS_DEV} from ${BACKUP_ROOTFS_MNT}"
+  rmdir "$BACKUP_ROOTFS_MNT" 2>/dev/null || true
+  exit 0
+fi
+
+log "failed to unmount ${BACKUP_ROOTFS_DEV} from ${BACKUP_ROOTFS_MNT}"
+exit 1

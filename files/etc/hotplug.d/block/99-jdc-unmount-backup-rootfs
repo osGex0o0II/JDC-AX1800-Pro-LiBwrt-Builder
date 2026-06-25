@@ -1,0 +1,14 @@
+#!/bin/sh
+
+HOOK="/usr/sbin/jdc-unmount-backup-rootfs"
+
+[ -x "$HOOK" ] || exit 0
+
+"$HOOK" >/dev/null 2>&1 || true
+
+(
+  sleep 2
+  "$HOOK" >/dev/null 2>&1 || true
+) &
+
+exit 0

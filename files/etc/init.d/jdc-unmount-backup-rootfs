@@ -1,0 +1,15 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+boot() {
+  /usr/sbin/jdc-unmount-backup-rootfs >/dev/null 2>&1 || true
+  (
+    sleep 5
+    /usr/sbin/jdc-unmount-backup-rootfs >/dev/null 2>&1 || true
+  ) &
+}
+
+start() {
+  /usr/sbin/jdc-unmount-backup-rootfs
+}

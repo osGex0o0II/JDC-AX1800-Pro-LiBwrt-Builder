@@ -16,8 +16,8 @@
 - 有线主路由取向，默认移除 ath11k Wi-Fi 相关包
 - BBR + fq，内建 `sch_fq`，避免启动早期 sysctl 失败
 - Aurora LuCI 主题，固定上游 commit
-- 默认包含 HomeProxy/sing-box，固定 HomeProxy commit 并校验 Makefile SHA256
-- 默认包含 cpufreq、Samba、ZeroTier、ECM、QuickFile-Go、DiskMan 和挂载支持
+- 默认包含 HomeProxy/sing-box；HomeProxy 构建时跟随上游 master，sing-box 构建时自动选择官方最新稳定版
+- 默认包含 cpufreq、Samba、ZeroTier、ECM、DiskMan 和挂载支持
 - 提供 `core-daede` 实验变体，用于评估 dae/daed eBPF 透明代理，包源固定为 `kenzok8/openwrt-daede`
 - GitHub Actions 自动编译、上传 artifact，并按日期合并发布 Release
 - Release 附带精简下载表、manifest、固件 SHA256、上游源码信息和最终配置摘要
@@ -27,17 +27,15 @@
 
 | 变体 | 定位 | 主要内容 |
 |:---|:---|:---|
-| `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、QuickFile-Go、DiskMan、挂载、USB 存储、CoreMark |
-| `core-daede` | eBPF 代理实验版 | 在 `core` 基础上替换为固定 commit 的 `kenzok8/openwrt-daede`，包含 `dae`、`daed` 和 `luci-app-daede`；默认选择 `daed` backend；文件管理同样使用 QuickFile-Go |
-| `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、QuickFile-Go、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
+| `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、DiskMan、挂载、USB 存储、CoreMark |
+| `core-daede` | eBPF 代理实验版 | 在 `core` 基础上替换为固定 commit 的 `kenzok8/openwrt-daede`，包含 `dae`、`daed` 和 `luci-app-daede`；默认选择 `daed` backend |
+| `ultimate` | 存储下载增强版 | 在 `core` 基础上增加 Aria2、NTFS3/Btrfs/FUSE 和更多 USB 工具，不包含 Docker |
 
 `core-daede.config` 是在 `core.config` 上叠加的实验配置；`luci-app-daede` 默认选择 `daed` backend，同时显式安装 `dae`，因为上游 daede 页面仍会调用 `/usr/bin/dae` 做 DSL 校验和版本检测；不再保留旧 `luci-app-dae` / `luci-app-daed` 入口和本项目自写的 DAE 控制、编辑、日志补丁。上游 daede 的 LuCI 辅助脚本会直接调用 `curl`、`uclient-fetch` 和 `ucode`，本项目在该变体中显式保留并体检这些工具，同时核对 BusyBox 默认提供 `flock`。构建脚本会把 daede 深色样式限定在页面内，避免进入 daede 后改写全局 LuCI 深浅色状态，并让关键按钮、圆角和焦点色跟随 Aurora 主题变量。`ultimate.config` 是在 `core.config` 上叠加的存储下载增强配置。`ultimate` 不叠加 `core-daede.config`，避免同时包含两套代理方案。
 
 上游 LiBwrt `main-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。实机 QWRT/iStoreOS 分区布局使用 eMMC GPT，board id 为 `jdcloud,ax1800-pro`，HLOS/HLOS_1 为 12 MiB；构建脚本会在编译阶段把上游 recipe 的 kernel slot 从 6 MiB 调整到 12 MiB，并加入该兼容 ID。
 
-当前上游 LuCI feeds 不提供旧包名 `luci-app-filetransfer`；本项目默认使用固定 commit 的 `home16668/luci-app-quickfile-go` 覆盖 LuCI 文件上传、下载和管理场景。
-
-QuickFile-Go 使用 Go 后端和 LuCI session 校验，不依赖 nginx，也不使用旧 QuickFile 预编译二进制。上游默认终端功能为开启，本项目首启会把 `quickfile-go.main.enable_terminal` 设为 `0`，文件管理服务仍在 LAN 侧可用。构建脚本会对固定上游包做最小补丁：监听地址从 `network.lan.ipaddr` 取值时裁掉 CIDR 后缀，页面主题默认跟随 LuCI/Aurora 当前深浅色但不持久化，只把 LuCI 菜单标题改为“文件管理”，页面内部显示保持上游默认，并注入一层 Aurora 主题兼容样式，覆盖上游硬编码的独立 Web App 配色。QuickFile-Go 具备较强的文件管理能力，请不要把 LuCI 管理口暴露到 WAN。
+出于攻击面和日常需求权衡，`core` 基底不再内置 QuickFile-Go 或其它 LuCI 文件管理器；需要文件操作时建议通过 SSH/SFTP 完成。
 
 ## 使用 GitHub Actions 编译
 
@@ -289,7 +287,7 @@ net.ipv4.tcp_congestion_control=bbr
 
 - 修改包选择时优先编辑 `configs/*.config`，不要直接改 Actions 里的包列表。
 - 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，daede 放 `files-daede/`，ultimate 存储下载增强相关放 `files-ultimate/`。
-- 更新 HomeProxy commit 时，同步更新 `HOMEPROXY_MAKEFILE_SHA256`。
+- HomeProxy 和 sing-box 版本由 `scripts/diy.sh` 在构建时联网解析；构建摘要会记录实际 HomeProxy commit、sing-box 稳定 tag 和源码 SHA256。
 - 更新 `core-daede` 时，同步核对 `DAEDE_COMMIT`、`dae` / `daed` / `luci-app-daede` 的 Makefile SHA256、`PKG_VERSION` / `PKG_HASH` / backend 依赖，以及 `luci-app-daede` 辅助脚本使用的 `curl` / `uclient-fetch` / `ucode` / BusyBox applet，并优先在 `core-daede` 变体验证。
 - 更新第三方 GitHub Actions 时，建议继续固定到具体 commit SHA。
 
@@ -300,7 +298,6 @@ net.ipv4.tcp_congestion_control=bbr
 - [immortalwrt/homeproxy](https://github.com/immortalwrt/homeproxy)
 - [eamonxg/luci-theme-aurora](https://github.com/eamonxg/luci-theme-aurora)
 - [kenzok8/openwrt-daede](https://github.com/kenzok8/openwrt-daede)
-- [home16668/luci-app-quickfile-go](https://github.com/home16668/luci-app-quickfile-go)
 
 ## 许可证
 

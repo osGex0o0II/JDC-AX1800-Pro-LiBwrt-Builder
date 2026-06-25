@@ -278,34 +278,18 @@ jobs:
           require_config CONFIG_PACKAGE_luci-app-samba4
           require_config CONFIG_PACKAGE_samba4-server
           require_config CONFIG_PACKAGE_luci-app-zerotier
-          test -f package/luci-app-quickfile-go/Makefile || {
-            echo "::error::Pinned luci-app-quickfile-go source was not injected at package/luci-app-quickfile-go" >&2
-            exit 1
-          }
-          grep -q '^PKG_NAME:=luci-app-quickfile-go$' package/luci-app-quickfile-go/Makefile
-          grep -q '^PKG_VERSION:=2.0.1$' package/luci-app-quickfile-go/Makefile
-          grep -q '^PKG_RELEASE:=73$' package/luci-app-quickfile-go/Makefile
-          grep -q 'DEPENDS:=+luci-base +rpcd' package/luci-app-quickfile-go/Makefile
-          grep -q 'quickfile-go-api' package/luci-app-quickfile-go/Makefile
-          grep -Fq 'listen_addr="${listen_addr%%/*}"' package/luci-app-quickfile-go/root/etc/init.d/quickfile-go
-          ! grep -Fq 'quickfileGoTheme' package/luci-app-quickfile-go/htdocs/luci-static/resources/view/quickfile-go.js
-          grep -Fq 'data-darkmode' package/luci-app-quickfile-go/htdocs/luci-static/resources/view/quickfile-go.js
-          grep -Fq 'Aurora theme bridge' package/luci-app-quickfile-go/htdocs/luci-static/resources/view/quickfile-go.js
-          grep -Fq 'fill="currentColor"' package/luci-app-quickfile-go/htdocs/luci-static/resources/view/quickfile-go.js
-          ! grep -Fq '🌙 深色模式' package/luci-app-quickfile-go/htdocs/luci-static/resources/view/quickfile-go.js
-          ! grep -Fq '☀ 浅色模式' package/luci-app-quickfile-go/htdocs/luci-static/resources/view/quickfile-go.js
-          grep -Fq '"title": "\u6587\u4ef6\u7ba1\u7406"' package/luci-app-quickfile-go/root/usr/share/luci/menu.d/luci-app-quickfile-go.json
-          grep -q "option enable_terminal '1'" package/luci-app-quickfile-go/root/etc/config/quickfile-go
-          grep -q "quickfile-go.main.enable_terminal='0'" files/etc/uci-defaults/96-service-defaults.sh
-          require_config CONFIG_PACKAGE_luci-app-quickfile-go
           require_config CONFIG_PACKAGE_uhttpd
           require_config CONFIG_PACKAGE_rpcd
           require_config CONFIG_PACKAGE_luci-app-diskman
           require_config CONFIG_PACKAGE_block-mount
           require_config CONFIG_PACKAGE_blockd
           require_config CONFIG_PACKAGE_automount
+          test ! -e package/luci-app-quickfile-go
+          test ! -e package/quickfile-go
           forbid_config CONFIG_PACKAGE_luci-app-quickfile
+          forbid_config CONFIG_PACKAGE_luci-app-quickfile-go
           forbid_config CONFIG_PACKAGE_quickfile
+          forbid_config CONFIG_PACKAGE_quickfile-go
           forbid_config CONFIG_PACKAGE_luci-nginx
           forbid_config CONFIG_PACKAGE_luci-app-filemanager
           forbid_config CONFIG_PACKAGE_luci-app-statistics
@@ -325,7 +309,7 @@ jobs:
           case "${{ matrix.variant }}" in
             core)
               test -f feeds/luci/applications/luci-app-homeproxy/Makefile || {
-                echo "::error::Pinned HomeProxy source was not injected at feeds/luci/applications/luci-app-homeproxy" >&2
+                echo "::error::HomeProxy source was not injected at feeds/luci/applications/luci-app-homeproxy" >&2
                 exit 1
               }
               test -L package/feeds/luci/luci-app-homeproxy || {
@@ -336,6 +320,31 @@ jobs:
                 echo "::error::Unexpected HomeProxy Makefile after injection" >&2
                 exit 1
               }
+              grep -q '+sing-box' feeds/luci/applications/luci-app-homeproxy/Makefile || {
+                echo "::error::HomeProxy no longer depends on sing-box" >&2
+                exit 1
+              }
+              test -n "${HOMEPROXY_COMMIT:-}" || {
+                echo "::error::HomeProxy commit was not exported" >&2
+                exit 1
+              }
+              test -n "${SING_BOX_VERSION:-}" || {
+                echo "::error::sing-box latest stable version was not exported" >&2
+                exit 1
+              }
+              grep -q "^PKG_VERSION:=${SING_BOX_VERSION}$" feeds/packages/net/sing-box/Makefile || {
+                echo "::error::sing-box Makefile does not match latest stable ${SING_BOX_VERSION}" >&2
+                exit 1
+              }
+              grep -q "^PKG_HASH:=${SING_BOX_SOURCE_SHA256}$" feeds/packages/net/sing-box/Makefile || {
+                echo "::error::sing-box Makefile hash does not match downloaded stable source" >&2
+                exit 1
+              }
+              test -f "dl/${SING_BOX_SOURCE_FILE}" || {
+                echo "::error::cached sing-box source tarball is missing" >&2
+                exit 1
+              }
+              echo "${SING_BOX_SOURCE_SHA256}  dl/${SING_BOX_SOURCE_FILE}" | sha256sum -c -
               require_config CONFIG_PACKAGE_luci-app-homeproxy
               require_config CONFIG_PACKAGE_sing-box
               require_config CONFIG_PACKAGE_kmod-nft-socket
@@ -415,13 +424,42 @@ jobs:
               ;;
             ultimate)
               test -f feeds/luci/applications/luci-app-homeproxy/Makefile || {
-                echo "::error::Pinned HomeProxy source was not injected at feeds/luci/applications/luci-app-homeproxy" >&2
+                echo "::error::HomeProxy source was not injected at feeds/luci/applications/luci-app-homeproxy" >&2
                 exit 1
               }
               test -L package/feeds/luci/luci-app-homeproxy || {
                 echo "::error::HomeProxy feed package symlink is missing" >&2
                 exit 1
               }
+              grep -q '^LUCI_TITLE:=The modern ImmortalWrt proxy platform' feeds/luci/applications/luci-app-homeproxy/Makefile || {
+                echo "::error::Unexpected HomeProxy Makefile after injection" >&2
+                exit 1
+              }
+              grep -q '+sing-box' feeds/luci/applications/luci-app-homeproxy/Makefile || {
+                echo "::error::HomeProxy no longer depends on sing-box" >&2
+                exit 1
+              }
+              test -n "${HOMEPROXY_COMMIT:-}" || {
+                echo "::error::HomeProxy commit was not exported" >&2
+                exit 1
+              }
+              test -n "${SING_BOX_VERSION:-}" || {
+                echo "::error::sing-box latest stable version was not exported" >&2
+                exit 1
+              }
+              grep -q "^PKG_VERSION:=${SING_BOX_VERSION}$" feeds/packages/net/sing-box/Makefile || {
+                echo "::error::sing-box Makefile does not match latest stable ${SING_BOX_VERSION}" >&2
+                exit 1
+              }
+              grep -q "^PKG_HASH:=${SING_BOX_SOURCE_SHA256}$" feeds/packages/net/sing-box/Makefile || {
+                echo "::error::sing-box Makefile hash does not match downloaded stable source" >&2
+                exit 1
+              }
+              test -f "dl/${SING_BOX_SOURCE_FILE}" || {
+                echo "::error::cached sing-box source tarball is missing" >&2
+                exit 1
+              }
+              echo "${SING_BOX_SOURCE_SHA256}  dl/${SING_BOX_SOURCE_FILE}" | sha256sum -c -
               require_config CONFIG_PACKAGE_luci-app-homeproxy
               require_config CONFIG_PACKAGE_sing-box
               require_config CONFIG_PACKAGE_kmod-nft-socket
@@ -507,8 +545,14 @@ jobs:
             fi
             echo "DIY script SHA256: $(sha256sum "${GITHUB_WORKSPACE}/scripts/diy.sh" | awk '{print $1}')"
             echo "Aurora commit: ${AURORA_COMMIT:-unknown}"
-            echo "QuickFile-Go source: home16668/luci-app-quickfile-go @ ${QUICKFILE_GO_COMMIT:-unknown}"
             echo "HomeProxy commit: ${HOMEPROXY_COMMIT:-not-included}"
+            echo "HomeProxy branch: ${HOMEPROXY_BRANCH:-not-included}"
+            echo "sing-box feed version: ${SING_BOX_FEED_VERSION:-not-included}"
+            echo "sing-box selected stable: ${SING_BOX_TAG:-not-included}"
+            echo "sing-box source file: ${SING_BOX_SOURCE_FILE:-not-included}"
+            echo "sing-box source SHA256: ${SING_BOX_SOURCE_SHA256:-not-included}"
+            echo "sing-box required Go: ${SING_BOX_GO_VERSION:-not-included}"
+            echo "OpenWrt feed Go: ${OPENWRT_GO_VERSION:-not-included}"
             if [ "${VARIANT}" = "core-daede" ]; then
               echo "DAEDE package source: kenzok8/openwrt-daede @ ${DAEDE_COMMIT:-unknown}"
             else

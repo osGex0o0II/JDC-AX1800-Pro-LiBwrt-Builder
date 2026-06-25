@@ -31,7 +31,126 @@ require_file_sha256() {
 
 normalize_overlay_modes() {
   [ -d files/etc/uci-defaults ] && find files/etc/uci-defaults -type f -exec chmod 755 {} +
+  [ -d files/etc/init.d ] && find files/etc/init.d -type f -exec chmod 755 {} +
+  [ -d files/etc/hotplug.d ] && find files/etc/hotplug.d -type f -exec chmod 755 {} +
   [ -d files/usr/sbin ] && find files/usr/sbin -type f -exec chmod 755 {} +
+}
+
+latest_stable_git_tag() {
+  local repo="$1"
+  git ls-remote --tags --refs "$repo" |
+    awk '{print $2}' |
+    sed 's#refs/tags/##' |
+    tr -d '\r' |
+    grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
+    sort -V |
+    tail -n 1
+}
+
+version_ge() {
+  [ "$1" = "$2" ] || [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n 1)" = "$2" ]
+}
+
+patch_sing_box_latest_stable() {
+  local makefile="feeds/packages/net/sing-box/Makefile"
+  local latest_tag version tarball_url tarball hash original_version
+  local tar_listing tar_root sing_box_go_version golang_values openwrt_go_version
+
+  [ -f "$makefile" ] || {
+    echo "ERROR: sing-box Makefile not found at ${makefile}" >&2
+    exit 1
+  }
+
+  latest_tag="$(latest_stable_git_tag https://github.com/SagerNet/sing-box.git)"
+  [ -n "$latest_tag" ] || {
+    echo "ERROR: failed to resolve latest stable sing-box tag" >&2
+    exit 1
+  }
+  version="${latest_tag#v}"
+  original_version="$(awk -F':=' '/^PKG_VERSION:=/ {print $2; exit}' "$makefile")"
+
+  tarball_url="https://codeload.github.com/SagerNet/sing-box/tar.gz/${latest_tag}"
+  tarball="$(mktemp)"
+  if ! curl --retry 5 --retry-delay 2 --retry-all-errors -fsSL "$tarball_url" -o "$tarball"; then
+    if command -v wget >/dev/null 2>&1; then
+      wget -q -O "$tarball" "$tarball_url" || {
+        rm -f "$tarball"
+        echo "ERROR: failed to download sing-box ${latest_tag} source tarball" >&2
+        exit 1
+      }
+    else
+      rm -f "$tarball"
+      echo "ERROR: failed to download sing-box ${latest_tag} source tarball" >&2
+      exit 1
+    fi
+  fi
+  if [ ! -s "$tarball" ]; then
+    rm -f "$tarball"
+    echo "ERROR: downloaded sing-box ${latest_tag} source tarball is empty" >&2
+    exit 1
+  fi
+  if ! tar -tzf "$tarball" >/dev/null 2>&1; then
+    rm -f "$tarball"
+    echo "ERROR: downloaded sing-box ${latest_tag} source tarball is invalid" >&2
+    exit 1
+  fi
+  tar_listing="$(tar -tzf "$tarball")"
+  tar_root="${tar_listing%%/*}"
+  sing_box_go_version="$(tar -xOzf "$tarball" "${tar_root}/go.mod" 2>/dev/null | awk '/^go / {print $2; exit}')"
+  [ -n "$sing_box_go_version" ] || {
+    rm -f "$tarball"
+    echo "ERROR: failed to read sing-box ${latest_tag} go.mod Go version" >&2
+    exit 1
+  }
+  golang_values="feeds/packages/lang/golang/golang-values.mk"
+  [ -f "$golang_values" ] || {
+    rm -f "$tarball"
+    echo "ERROR: OpenWrt golang values file not found at ${golang_values}" >&2
+    exit 1
+  }
+  openwrt_go_version="$(awk -F':=' '/^GO_DEFAULT_VERSION:=/ {gsub(/[[:space:]]/, "", $2); print $2; exit}' "$golang_values")"
+  [ -n "$openwrt_go_version" ] || {
+    rm -f "$tarball"
+    echo "ERROR: failed to read OpenWrt GO_DEFAULT_VERSION" >&2
+    exit 1
+  }
+  if ! version_ge "$openwrt_go_version" "$sing_box_go_version"; then
+    rm -f "$tarball"
+    echo "ERROR: sing-box ${latest_tag} requires Go ${sing_box_go_version}, but OpenWrt feed provides Go ${openwrt_go_version}" >&2
+    exit 1
+  fi
+  hash="$(sha256sum "$tarball" | awk '{print $1}')"
+  mkdir -p dl
+  cp "$tarball" "dl/sing-box-${version}.tar.gz"
+  rm -f "$tarball"
+
+  sed -i \
+    -e "s/^PKG_VERSION:=.*/PKG_VERSION:=${version}/" \
+    -e "s/^PKG_HASH:=.*/PKG_HASH:=${hash}/" \
+    "$makefile"
+
+  grep -q "^PKG_VERSION:=${version}$" "$makefile" || {
+    echo "ERROR: failed to patch sing-box PKG_VERSION" >&2
+    exit 1
+  }
+  grep -q "^PKG_HASH:=${hash}$" "$makefile" || {
+    echo "ERROR: failed to patch sing-box PKG_HASH" >&2
+    exit 1
+  }
+
+  if [ -n "${GITHUB_ENV:-}" ]; then
+    {
+      echo "SING_BOX_VERSION=${version}"
+      echo "SING_BOX_TAG=${latest_tag}"
+      echo "SING_BOX_SOURCE_SHA256=${hash}"
+      echo "SING_BOX_SOURCE_FILE=sing-box-${version}.tar.gz"
+      echo "SING_BOX_GO_VERSION=${sing_box_go_version}"
+      echo "OPENWRT_GO_VERSION=${openwrt_go_version}"
+      echo "SING_BOX_FEED_VERSION=${original_version:-unknown}"
+    } >> "$GITHUB_ENV"
+  fi
+
+  echo "sing-box updated from feed ${original_version:-unknown} to latest stable ${version} (${hash}); Go ${openwrt_go_version} >= ${sing_box_go_version}"
 }
 
 verify_theme_darkmode_hooks() {
@@ -69,193 +188,6 @@ verify_theme_darkmode_hooks() {
   }
   grep -Fq 'No prefers-color-scheme dark block' "$daede_styles" || {
     echo "ERROR: luci-app-daede may force OS dark mode instead of LuCI theme state" >&2
-    exit 1
-  }
-}
-
-patch_quickfile_go() {
-  local initd="package/luci-app-quickfile-go/root/etc/init.d/quickfile-go"
-  local view="package/luci-app-quickfile-go/htdocs/luci-static/resources/view/quickfile-go.js"
-  local menu="package/luci-app-quickfile-go/root/usr/share/luci/menu.d/luci-app-quickfile-go.json"
-
-  perl -0pi -e '
-    s~(\tif \[ -z "\$listen_addr" \] \|\| \[ "\$listen_addr" = "auto" \]; then\R\t\tlisten_addr="\$\(uci -q get network\.lan\.ipaddr 2>/dev/null\)"\R\t\t\[ -n "\$listen_addr" \] \|\| listen_addr="192\.168\.1\.1"\R\tfi\R)~$1\tlisten_addr="\${listen_addr%%/*}"\n\t[ -n "\$listen_addr" ] || listen_addr="192.168.1.1"\n~ or die "quickfile-go init script anchor not found\n";
-  ' "$initd"
-
-  perl -0pi -e '
-    BEGIN {
-      $helper = q~
-function defaultQuickFileTheme() {
-    const root = document.documentElement;
-    if (root && root.getAttribute("data-darkmode") === "true") return "dark";
-    return "light";
-}
-~;
-    }
-    s/\Rreturn view\.extend\(\{\R/\n$helper\nreturn view.extend({\n/ or die "quickfile-go theme helper anchor not found\n";
-    s/    theme: \x27dark\x27,/    theme: defaultQuickFileTheme(),/ or die "quickfile-go theme property anchor not found\n";
-    s/this\.theme = this\.theme === \x27dark\x27 \? \x27light\x27 : \x27dark\x27; this\.refresh\(this\.currentPath\);/this.theme = this.theme === "dark" ? "light" : "dark"; this.refresh(this.currentPath);/ or die "quickfile-go theme toggle anchor not found\n";
-  ' "$view"
-
-  perl -0pi -e '
-    BEGIN {
-      $aurora = q~
-        /* Aurora theme bridge: keep QuickFile-Go visually inside LuCI instead of
-           carrying its upstream Element-style hard-coded palette. */
-        .qf-app {
-            background: transparent !important;
-            color: var(--text, #141822) !important;
-            font-family: var(--font-sans, "Lato", ui-sans-serif, system-ui, sans-serif) !important;
-        }
-        .qf-header, .qf-card, .qf-toolbar,
-        .qf-dialog, .qf-settings-panel, .qf-confirm-dialog,
-        .qf-settings-dialog, .qf-install-dialog, .qf-editor-dialog,
-        .qf-terminal-dialog, .qf-task-row {
-            background: var(--surface, #fff) !important;
-            color: var(--text, #141822) !important;
-            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
-            box-shadow: none !important;
-        }
-        .qf-header, .qf-card {
-            border: 1px solid var(--hairline, rgba(20,24,34,.08)) !important;
-            border-radius: 8px !important;
-        }
-        .qf-toolbar {
-            border-bottom: 1px solid var(--hairline, rgba(20,24,34,.08)) !important;
-        }
-        .qf-logo, .qf-item-name, .qf-grid.qf-list-view .qf-item-name,
-        .qf-task-title, .qf-confirm-message, .qf-install-status {
-            color: var(--text, #141822) !important;
-        }
-        .qf-header-right, .qf-breadcrumb, .qf-item-meta,
-        .qf-grid.qf-list-view .qf-item-meta,
-        .qf-grid.qf-list-view .qf-col-time,
-        .qf-grid.qf-list-view .qf-col-mode,
-        .qf-empty, .qf-settings-note, .qf-task-meta,
-        .qf-form-help, .qf-download-path, .qf-install-actions-left {
-            color: var(--text-muted, #5f636b) !important;
-        }
-        .qf-header-right span:hover, .qf-breadcrumb span.qf-bc-link:hover,
-        .qf-list-header span[data-sort]:hover, .qf-menu-item:hover {
-            color: var(--brand, #46a3d1) !important;
-        }
-        .qf-btn, .qf-confirm-cancel, .qf-terminal-action {
-            background: var(--surface, #fff) !important;
-            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
-            color: var(--text, #141822) !important;
-            border-radius: 8px !important;
-            box-shadow: none !important;
-        }
-        .qf-btn:hover, .qf-confirm-cancel:hover, .qf-terminal-action:hover {
-            background: var(--surface-sunken, #f0f1f3) !important;
-            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
-            color: var(--brand, #46a3d1) !important;
-        }
-        .qf-btn-primary, .qf-confirm-ok, .qf-install-dot {
-            background: var(--brand, #46a3d1) !important;
-            border-color: var(--brand, #46a3d1) !important;
-            color: var(--on-brand, #fff) !important;
-        }
-        .qf-btn-danger-text, .qf-form-error, .qf-install-status.fail,
-        .qf-menu-item[style*="f56c6c"] {
-            color: var(--danger, #6c1517) !important;
-        }
-        .qf-btn:disabled, .qf-btn.disabled {
-            background: var(--surface-sunken, #f0f1f3) !important;
-            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
-            color: var(--text-subtle, #7e8188) !important;
-        }
-        .qf-btn-icon {
-            display: none !important;
-        }
-        .qf-search-box, .qf-settings-field input, .qf-settings-field select,
-        .qf-form-input, .qf-download-path, .qf-confirm-target,
-        .qf-install-meta, .qf-install-log, .qf-editor-host,
-        .qf-editor, .qf-terminal-status {
-            background: var(--surface-sunken, #f0f1f3) !important;
-            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
-            color: var(--text, #141822) !important;
-        }
-        .qf-search-box input {
-            color: var(--text, #141822) !important;
-        }
-        .qf-settings-field input:focus, .qf-settings-field select:focus,
-        .qf-form-input:focus {
-            border-color: var(--brand, #46a3d1) !important;
-            box-shadow: 0 0 0 2px var(--focus-ring, rgba(70,163,209,.35)) !important;
-        }
-        .qf-list-header {
-            background: var(--surface, #fff) !important;
-            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
-            color: var(--text-muted, #5f636b) !important;
-        }
-        .qf-grid.qf-list-view .qf-item {
-            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
-        }
-        .qf-item:hover, .qf-menu-item:hover {
-            background: var(--surface-sunken, #f0f1f3) !important;
-        }
-        .qf-item.selected, .qf-item.context-target,
-        .qf-app.drag-over {
-            background: var(--brand-subtle, #e0eaf2) !important;
-            border-color: var(--brand, #46a3d1) !important;
-        }
-        .qf-context-menu {
-            background: var(--surface-overlay, var(--surface, #fff)) !important;
-            color: var(--text, #141822) !important;
-            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
-            box-shadow: var(--app-shadow-md, 0 4px 16px rgba(0,0,0,.08)) !important;
-            border-radius: 8px !important;
-        }
-        .qf-menu-separator, .qf-settings-actions,
-        .qf-dialog-header, .qf-dialog-footer,
-        .qf-confirm-dialog .qf-dialog-footer,
-        .qf-install-dialog .qf-dialog-footer,
-        .qf-editor-dialog .qf-dialog-footer {
-            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
-        }
-        .qf-overlay {
-            background: var(--scrim, rgba(0,0,0,.6)) !important;
-        }
-        .qf-thumb {
-            background: var(--surface-sunken, #f0f1f3) !important;
-            border-color: var(--hairline, rgba(20,24,34,.08)) !important;
-        }
-~;
-    }
-    s/(\n\s*`;\R\s*document\.head\.appendChild\(E\(\x27style\x27, \{ id: \x27qf-custom-css\x27 \}, css\)\);\R)/\n$aurora$1/ or die "quickfile-go Aurora style anchor not found\n";
-    s/this\.theme === \x27light\x27 \? \x27.*?深色模式\x27 : \x27.*?浅色模式\x27/this.theme === \x27light\x27 ? \x27深色模式\x27 : \x27浅色模式\x27/ or die "quickfile-go theme label anchor not found\n";
-    s/const logoIcon = this\.makeIcon\(`(<svg viewBox="0 0 1024 1024" width="22" height="22"><path[^`]+fill=")#409eff("[^`]+)`\);/const logoIcon = this.makeIcon(`$1currentColor$2`);/ or die "quickfile-go logo icon anchor not found\n";
-  ' "$view"
-
-  perl -0pi -e 's/"title": "QuickFile-Go"/"title": "\\u6587\\u4ef6\\u7ba1\\u7406"/ or die "quickfile-go menu title anchor not found\n";' "$menu"
-
-  grep -Fq 'listen_addr="${listen_addr%%/*}"' "$initd" || {
-    echo "ERROR: quickfile-go init script does not strip CIDR from listen_addr" >&2
-    exit 1
-  }
-  if grep -Fq "quickfileGoTheme" "$view"; then
-    echo "ERROR: quickfile-go theme state must not persist after leaving the page" >&2
-    exit 1
-  fi
-  grep -Fq "data-darkmode" "$view" || {
-    echo "ERROR: quickfile-go theme patch no longer follows LuCI dark mode" >&2
-    exit 1
-  }
-  grep -Fq "Aurora theme bridge" "$view" || {
-    echo "ERROR: quickfile-go Aurora theme bridge is missing" >&2
-    exit 1
-  }
-  grep -Fq 'fill="currentColor"' "$view" || {
-    echo "ERROR: quickfile-go logo icon no longer follows text color" >&2
-    exit 1
-  }
-  if grep -Fq '🌙 深色模式' "$view" || grep -Fq '☀ 浅色模式' "$view"; then
-    echo "ERROR: quickfile-go theme toggle still uses standalone emoji labels" >&2
-    exit 1
-  fi
-  grep -Fq '"title": "\u6587\u4ef6\u7ba1\u7406"' "$menu" || {
-    echo "ERROR: quickfile-go menu title patch is missing" >&2
     exit 1
   }
 }
@@ -313,63 +245,6 @@ patch_daede_theme() {
     echo "ERROR: luci-app-daede active backend no longer follows Aurora brand color" >&2
     exit 1
   }
-}
-
-inject_quickfile_go() {
-  echo "Injecting luci-app-quickfile-go (pinned commit)"
-
-  rm -rf \
-    package/quickfile \
-    package/quickfile-go \
-    package/luci-app-quickfile \
-    package/luci-app-quickfile-go \
-    package/luci-app-quickfile-go-src \
-    package/feeds/luci/luci-app-quickfile \
-    package/feeds/luci/luci-app-quickfile-go
-
-  local quickfile_go_commit="57b9f4636b778b75de4642b84071881e98c72b7c"
-  local quickfile_go_makefile_sha256="1458f7a213158953744c8f73e0b0ff64020bdcd23dd16bc53ac3604dd17050e4"
-  if [ -n "${GITHUB_ENV:-}" ]; then
-    echo "QUICKFILE_GO_COMMIT=${quickfile_go_commit}" >> "$GITHUB_ENV"
-  fi
-
-  git clone https://github.com/home16668/luci-app-quickfile-go package/luci-app-quickfile-go-src
-  git -C package/luci-app-quickfile-go-src -c advice.detachedHead=false checkout "$quickfile_go_commit"
-  mv package/luci-app-quickfile-go-src/luci-app-quickfile-go package/luci-app-quickfile-go
-  rm -rf package/luci-app-quickfile-go-src
-
-  require_file_sha256 \
-    package/luci-app-quickfile-go/Makefile \
-    "$quickfile_go_makefile_sha256" \
-    "luci-app-quickfile-go Makefile"
-  patch_quickfile_go
-
-  grep -q '^PKG_NAME:=luci-app-quickfile-go$' package/luci-app-quickfile-go/Makefile || {
-    echo "ERROR: unexpected luci-app-quickfile-go package name" >&2
-    exit 1
-  }
-  grep -q '^PKG_VERSION:=2.0.1$' package/luci-app-quickfile-go/Makefile || {
-    echo "ERROR: unexpected luci-app-quickfile-go package version" >&2
-    exit 1
-  }
-  grep -q '^PKG_RELEASE:=73$' package/luci-app-quickfile-go/Makefile || {
-    echo "ERROR: unexpected luci-app-quickfile-go package release" >&2
-    exit 1
-  }
-  grep -q 'DEPENDS:=+luci-base +rpcd' package/luci-app-quickfile-go/Makefile || {
-    echo "ERROR: unexpected luci-app-quickfile-go dependencies" >&2
-    exit 1
-  }
-  grep -q 'quickfile-go-api' package/luci-app-quickfile-go/Makefile || {
-    echo "ERROR: quickfile-go backend install rule is missing" >&2
-    exit 1
-  }
-  if grep -Rq 'luci-nginx' package/luci-app-quickfile-go; then
-    echo "ERROR: luci-app-quickfile-go unexpectedly references luci-nginx" >&2
-    exit 1
-  fi
-
-  echo "luci-app-quickfile-go source verified (commit ${quickfile_go_commit})"
 }
 
 inject_daede() {
@@ -575,8 +450,6 @@ if ! git clone https://github.com/eamonxg/luci-theme-aurora package/luci-theme-a
 fi
 git -C package/luci-theme-aurora -c advice.detachedHead=false checkout "$AURORA_COMMIT"
 
-inject_quickfile_go
-
 if [ "$VARIANT" = "core-daede" ]; then
   inject_daede
   verify_theme_darkmode_hooks
@@ -584,30 +457,41 @@ if [ "$VARIANT" = "core-daede" ]; then
   exit 0
 fi
 
+patch_sing_box_latest_stable
+
 # -- Inject HomeProxy --
-echo "Injecting HomeProxy (pinned commit)"
+echo "Injecting HomeProxy (latest master)"
 
 rm -rf \
   feeds/luci/applications/luci-app-homeproxy \
   package/feeds/luci/luci-app-homeproxy \
   package/luci-app-homeproxy
 
-HOMEPROXY_COMMIT="29f61caf303cd3a7051e26055dc97fdf4890e2b0"
-HOMEPROXY_MAKEFILE_SHA256="6700e5b519ca151657f3c8b67d2f067d4f45bb91337a43ca583e6386cb8d0792"
-if [ -n "${GITHUB_ENV:-}" ]; then
-  echo "HOMEPROXY_COMMIT=${HOMEPROXY_COMMIT}" >> "$GITHUB_ENV"
-fi
-
-git clone https://github.com/immortalwrt/homeproxy feeds/luci/applications/luci-app-homeproxy
+git clone --depth 1 https://github.com/immortalwrt/homeproxy feeds/luci/applications/luci-app-homeproxy
 mkdir -p package/feeds/luci
 ln -s ../../../feeds/luci/applications/luci-app-homeproxy package/feeds/luci/luci-app-homeproxy
-git -C feeds/luci/applications/luci-app-homeproxy -c advice.detachedHead=false checkout "$HOMEPROXY_COMMIT"
+HOMEPROXY_COMMIT="$(git -C feeds/luci/applications/luci-app-homeproxy rev-parse HEAD)"
+HOMEPROXY_BRANCH="$(git -C feeds/luci/applications/luci-app-homeproxy rev-parse --abbrev-ref HEAD)"
+if [ -n "${GITHUB_ENV:-}" ]; then
+  {
+    echo "HOMEPROXY_COMMIT=${HOMEPROXY_COMMIT}"
+    echo "HOMEPROXY_BRANCH=${HOMEPROXY_BRANCH}"
+  } >> "$GITHUB_ENV"
+fi
 
-require_file_sha256 \
-  feeds/luci/applications/luci-app-homeproxy/Makefile \
-  "$HOMEPROXY_MAKEFILE_SHA256" \
-  "HomeProxy Makefile"
-echo "HomeProxy Makefile integrity verified (SHA256 match)"
+grep -q '^LUCI_TITLE:=The modern ImmortalWrt proxy platform' feeds/luci/applications/luci-app-homeproxy/Makefile || {
+  echo "ERROR: unexpected HomeProxy Makefile title after injection" >&2
+  exit 1
+}
+grep -q '^LUCI_DEPENDS:=' feeds/luci/applications/luci-app-homeproxy/Makefile || {
+  echo "ERROR: HomeProxy Makefile dependencies are missing" >&2
+  exit 1
+}
+grep -q '+sing-box' feeds/luci/applications/luci-app-homeproxy/Makefile || {
+  echo "ERROR: HomeProxy no longer depends on sing-box" >&2
+  exit 1
+}
+echo "HomeProxy source verified (latest ${HOMEPROXY_BRANCH} commit ${HOMEPROXY_COMMIT})"
 
 refresh_package_metadata
 exit 0
