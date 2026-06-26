@@ -212,6 +212,205 @@ patch_sing_box_latest_stable() {
   echo "sing-box updated from feed ${original_version:-unknown} to latest stable ${version} (${hash}); Go ${openwrt_go_version} >= ${sing_box_go_version}"
 }
 
+patch_homeproxy_sing_box_compat() {
+  local generator="feeds/luci/applications/luci-app-homeproxy/root/etc/homeproxy/scripts/generate_client.uc"
+  local updater="feeds/luci/applications/luci-app-homeproxy/root/etc/homeproxy/scripts/update_subscriptions.uc"
+  local legacy_sniff_count legacy_override_count detour_count direct_detour_count
+
+  [ -f "$generator" ] || {
+    echo "ERROR: HomeProxy client generator not found at ${generator}" >&2
+    exit 1
+  }
+  [ -f "$updater" ] || {
+    echo "ERROR: HomeProxy subscription updater not found at ${updater}" >&2
+    exit 1
+  }
+  sed -i 's/\r$//' "$generator"
+  sed -i 's/\r$//' "$updater"
+
+  legacy_sniff_count="$(awk 'index($0, "sniff: true") { count++ } END { print count + 0 }' "$generator")"
+  legacy_override_count="$(awk 'index($0, "sniff_override_destination: strToBool(sniff_override)") { count++ } END { print count + 0 }' "$generator")"
+  if [ "$legacy_sniff_count" -gt 0 ] || [ "$legacy_override_count" -gt 0 ]; then
+    [ "$legacy_sniff_count" -eq 4 ] && [ "$legacy_override_count" -eq 4 ] || {
+      echo "ERROR: unexpected HomeProxy legacy inbound sniff field counts: sniff=${legacy_sniff_count}, override=${legacy_override_count}" >&2
+      exit 1
+    }
+    perl -ni -e '
+      next if /^\t+sniff: true,?$/;
+      next if /^\t+sniff_override_destination: strToBool\(sniff_override\),?$/;
+      print;
+    ' "$generator"
+    perl -0pi -e 's/,(\n\t+\}\);)/$1/g' "$generator"
+  fi
+
+  if ! grep -Fq "inbound: ['mixed-in', 'redirect-in', 'tproxy-in', 'tun-in']" "$generator"; then
+    perl -0pi -e '
+      s~\n\t\t/\*\n\t\t \* leave for sing-box 1\.13\.0\n\t\t \* \{\n\t\t \* \taction: '"'"'sniff'"'"'\n\t\t \* \}\n\t\t \*/~~;
+      $n = s~(\t\t\{\n\t\t\tinbound: '"'"'dns-in'"'"',\n\t\t\taction: '"'"'hijack-dns'"'"'\n\t\t\})~$1,\n\t\t{\n\t\t\tinbound: ['"'"'mixed-in'"'"', '"'"'redirect-in'"'"', '"'"'tproxy-in'"'"', '"'"'tun-in'"'"'],\n\t\t\taction: '"'"'sniff'"'"'\n\t\t}~;
+      END { die "ERROR: failed to add HomeProxy route sniff action\n" unless $n == 1; }
+    ' "$generator"
+  fi
+
+  if ! grep -Fq "const main_urltest_nodes = filter(uci.get(uciconfig, ucimain, 'main_urltest_nodes')" "$generator"; then
+    perl -0pi -e "s~const main_urltest_nodes = uci\\.get\\(uciconfig, ucimain, 'main_urltest_nodes'\\) \\|\\| \\[\\];~const main_urltest_nodes = filter(uci.get(uciconfig, ucimain, 'main_urltest_nodes') || [], (k) => !isEmpty(uci.get_all(uciconfig, k)?.type));~" "$generator"
+  fi
+  if ! grep -Fq "const main_udp_urltest_nodes = filter(uci.get(uciconfig, ucimain, 'main_udp_urltest_nodes')" "$generator"; then
+    perl -0pi -e "s~const main_udp_urltest_nodes = uci\\.get\\(uciconfig, ucimain, 'main_udp_urltest_nodes'\\) \\|\\| \\[\\];~const main_udp_urltest_nodes = filter(uci.get(uciconfig, ucimain, 'main_udp_urltest_nodes') || [], (k) => !isEmpty(uci.get_all(uciconfig, k)?.type));~" "$generator"
+  fi
+  if ! grep -Fq "const cfg_urltest_nodes = filter(cfg.urltest_nodes || []" "$generator"; then
+    perl -0pi -e "s~(\\t\\tif \\(cfg\\.node === 'urltest'\\) \\{\\n)~\$1\\t\\t\\tconst cfg_urltest_nodes = filter(cfg.urltest_nodes || [], (k) => !isEmpty(uci.get_all(uciconfig, k)?.type));\\n~" "$generator"
+    sed -i 's/outbounds: map(cfg.urltest_nodes/outbounds: map(cfg_urltest_nodes/; s/filter(cfg.urltest_nodes, (l) =>/filter(cfg_urltest_nodes, (l) =>/' "$generator"
+  fi
+  if ! grep -Fq "if (isEmpty(urltest_node.type))" "$generator"; then
+    perl -0pi -e "s~(const urltest_node = uci\\.get_all\\(uciconfig, i\\) \\|\\| \\{\\};\\n)~\$1\\t\\tif (isEmpty(urltest_node.type))\\n\\t\\t\\tcontinue;\\n~g" "$generator"
+  fi
+
+  detour_count="$(awk 'index($0, "download_detour: '\''main-out'\''") { count++ } END { print count + 0 }' "$generator")"
+  if [ "$detour_count" -gt 0 ]; then
+    [ "$detour_count" -eq 3 ] || {
+      echo "ERROR: unexpected HomeProxy main-out rule-set detour count: ${detour_count}" >&2
+      exit 1
+    }
+    sed -i "s/download_detour: 'main-out'/download_detour: 'direct-out'/g" "$generator"
+  fi
+
+  if grep -Fq "sniff_override_destination: strToBool(sniff_override)" "$generator" ||
+     grep -Fq "sniff: true" "$generator"; then
+    echo "ERROR: HomeProxy still contains legacy sing-box inbound sniff fields" >&2
+    exit 1
+  fi
+  grep -Fq "inbound: ['mixed-in', 'redirect-in', 'tproxy-in', 'tun-in']" "$generator" || {
+    echo "ERROR: HomeProxy sing-box 1.13 route sniff action is missing" >&2
+    exit 1
+  }
+  grep -Fq "const main_urltest_nodes = filter(uci.get(uciconfig, ucimain, 'main_urltest_nodes')" "$generator" || {
+    echo "ERROR: HomeProxy main urltest nodes are not filtered for stale UCI sections" >&2
+    exit 1
+  }
+  grep -Fq "const main_udp_urltest_nodes = filter(uci.get(uciconfig, ucimain, 'main_udp_urltest_nodes')" "$generator" || {
+    echo "ERROR: HomeProxy UDP urltest nodes are not filtered for stale UCI sections" >&2
+    exit 1
+  }
+  grep -Fq "const cfg_urltest_nodes = filter(cfg.urltest_nodes || []" "$generator" || {
+    echo "ERROR: HomeProxy custom urltest nodes are not filtered for stale UCI sections" >&2
+    exit 1
+  }
+  grep -Fq "if (isEmpty(urltest_node.type))" "$generator" || {
+    echo "ERROR: HomeProxy standalone urltest outbound generation does not skip stale UCI sections" >&2
+    exit 1
+  }
+  direct_detour_count="$(awk 'index($0, "download_detour: '\''direct-out'\''") { count++ } END { print count + 0 }' "$generator")"
+  [ "$direct_detour_count" -ge 3 ] || {
+    echo "ERROR: HomeProxy remote rule-set downloads are not forced to direct-out" >&2
+    exit 1
+  }
+
+  if ! grep -Fq "function is_placeholder_subscription_node(config)" "$updater"; then
+    local tmp_updater
+    tmp_updater="$(mktemp)"
+    awk '
+      /^\/\* String helper end \*\/$/ && !inserted {
+        print "function is_placeholder_subscription_node(config) {"
+        print "\tconst label = config.label || \"\";"
+        print "\tconst address = config.address || \"\";"
+        print ""
+        print "\tif (address === \"localhost\" || address === \"0.0.0.0\" || address === \"::\" || address === \"::1\" || match(address, /^127\\./))"
+        print "\t\treturn true;"
+        print ""
+        print "\tif (match(label, /v2rayN|old client|client too old|update client/))"
+        print "\t\treturn true;"
+        print ""
+        print "\treturn false;"
+        print "}"
+        print ""
+        inserted = 1
+      }
+      { print }
+      END { if (!inserted) exit 1 }
+    ' "$updater" > "$tmp_updater" || {
+      rm -f "$tmp_updater"
+      echo "ERROR: failed to add HomeProxy placeholder subscription node helper" >&2
+      exit 1
+    }
+    cat "$tmp_updater" > "$updater"
+    rm -f "$tmp_updater"
+  fi
+
+  if ! grep -Fq "is_placeholder_subscription_node(config)" "$updater" ||
+     ! grep -Fq "Skipping placeholder subscription node" "$updater"; then
+    local tmp_updater
+    tmp_updater="$(mktemp)"
+    awk '
+      index($0, "config.address) + " q ":" q " + config.port;") && !inserted {
+        print
+        print ""
+        print "\t\tif (is_placeholder_subscription_node(config)) {"
+        print "\t\t\tlog(sprintf(\"Skipping placeholder subscription node: %s.\", config.label || config.address || \"NULL\"));"
+        print "\t\t\treturn null;"
+        print "\t\t}"
+        inserted = 1
+        next
+      }
+      { print }
+      END { if (!inserted) exit 1 }
+    ' q="'" "$updater" > "$tmp_updater" || {
+      rm -f "$tmp_updater"
+      echo "ERROR: failed to add HomeProxy placeholder subscription node check" >&2
+      exit 1
+    }
+    cat "$tmp_updater" > "$updater"
+    rm -f "$tmp_updater"
+  fi
+
+  if ! grep -Fq "No main node is selected, switching to the first node." "$updater"; then
+    local tmp_updater
+    tmp_updater="$(mktemp)"
+    awk '
+      index($0, "\tlet need_restart = (via_proxy !== " q "1" q ");") && !inserted {
+        print
+        print "\tconst first_server = uci.get_first(uciconfig, ucinode);"
+        print "\tif (routing_mode !== " q "custom" q " && isEmpty(main_node) && first_server) {"
+        print "\t\tuci.set(uciconfig, ucimain, " q "main_node" q ", first_server);"
+        print "\t\tuci.set(uciconfig, ucimain, " q "main_udp_node" q ", " q "same" q ");"
+        print "\t\tuci.commit(uciconfig);"
+        print "\t\tmain_node = first_server;"
+        print "\t\tmain_udp_node = " q "same" q ";"
+        print "\t\tneed_restart = true;"
+        print ""
+        print "\t\tlog(" q "No main node is selected, switching to the first node." q ");"
+        print "\t}"
+        inserted = 1
+        next
+      }
+      { print }
+      END { if (!inserted) exit 1 }
+    ' q="'" "$updater" > "$tmp_updater" || {
+      rm -f "$tmp_updater"
+      echo "ERROR: failed to add HomeProxy first subscription node fallback" >&2
+      exit 1
+    }
+    cat "$tmp_updater" > "$updater"
+    rm -f "$tmp_updater"
+
+    perl -0pi -e "s/\n\t\tconst first_server = uci\.get_first\(uciconfig, ucinode\);//" "$updater"
+  fi
+
+  grep -Fq "function is_placeholder_subscription_node(config)" "$updater" || {
+    echo "ERROR: HomeProxy placeholder subscription node helper is missing" >&2
+    exit 1
+  }
+  grep -Fq "Skipping placeholder subscription node" "$updater" || {
+    echo "ERROR: HomeProxy placeholder subscription node check is missing" >&2
+    exit 1
+  }
+  grep -Fq "No main node is selected, switching to the first node." "$updater" || {
+    echo "ERROR: HomeProxy first subscription node fallback is missing" >&2
+    exit 1
+  }
+
+  echo "Patched HomeProxy scripts for sing-box 1.13+, direct rule-set bootstrap downloads, placeholder subscription filtering, and first node fallback"
+}
+
 verify_theme_darkmode_hooks() {
   local aurora_header="package/luci-theme-aurora/ucode/template/themes/aurora/header.ut"
   local daede_config="package/luci-app-daede/htdocs/luci-static/resources/view/daede/config.js"
@@ -571,6 +770,7 @@ grep -q '+sing-box' feeds/luci/applications/luci-app-homeproxy/Makefile || {
   echo "ERROR: HomeProxy no longer depends on sing-box" >&2
   exit 1
 }
+patch_homeproxy_sing_box_compat
 echo "HomeProxy source verified (${HOMEPROXY_SOURCE} ${HOMEPROXY_TAG:-${HOMEPROXY_REF}} commit ${HOMEPROXY_COMMIT})"
 
 refresh_package_metadata

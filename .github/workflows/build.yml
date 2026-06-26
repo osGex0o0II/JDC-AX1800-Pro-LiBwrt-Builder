@@ -259,6 +259,68 @@ jobs:
             }
             echo "OK: JDCloud image recipe patched for 12MiB HLOS and ax1800-pro compat"
           }
+          require_homeproxy_generator_patch() {
+            generator="feeds/luci/applications/luci-app-homeproxy/root/etc/homeproxy/scripts/generate_client.uc"
+            updater="feeds/luci/applications/luci-app-homeproxy/root/etc/homeproxy/scripts/update_subscriptions.uc"
+            test -f "$generator" || {
+              echo "::error::HomeProxy client generator is missing" >&2
+              exit 1
+            }
+            test -f "$updater" || {
+              echo "::error::HomeProxy subscription updater is missing" >&2
+              exit 1
+            }
+            ! grep -Fq "sniff_override_destination: strToBool(sniff_override)" "$generator" || {
+              echo "::error::HomeProxy still contains legacy sing-box inbound sniff fields" >&2
+              exit 1
+            }
+            ! grep -Fq "sniff: true" "$generator" || {
+              echo "::error::HomeProxy still contains legacy inbound sniff=true fields" >&2
+              exit 1
+            }
+            grep -Fq "inbound: ['mixed-in', 'redirect-in', 'tproxy-in', 'tun-in']" "$generator" || {
+              echo "::error::HomeProxy sing-box 1.13 route sniff action is missing" >&2
+              exit 1
+            }
+            grep -Fq "const main_urltest_nodes = filter(uci.get(uciconfig, ucimain, 'main_urltest_nodes')" "$generator" || {
+              echo "::error::HomeProxy main urltest stale-node filter is missing" >&2
+              exit 1
+            }
+            grep -Fq "const main_udp_urltest_nodes = filter(uci.get(uciconfig, ucimain, 'main_udp_urltest_nodes')" "$generator" || {
+              echo "::error::HomeProxy UDP urltest stale-node filter is missing" >&2
+              exit 1
+            }
+            grep -Fq "const cfg_urltest_nodes = filter(cfg.urltest_nodes || []" "$generator" || {
+              echo "::error::HomeProxy custom urltest stale-node filter is missing" >&2
+              exit 1
+            }
+            grep -Fq "if (isEmpty(urltest_node.type))" "$generator" || {
+              echo "::error::HomeProxy stale urltest outbound skip is missing" >&2
+              exit 1
+            }
+            direct_detours="$(awk 'index($0, "download_detour: '\''direct-out'\''") { count++ } END { print count + 0 }' "$generator")"
+            test "$direct_detours" -ge 3 || {
+              echo "::error::HomeProxy rule-set bootstrap downloads are not direct-out" >&2
+              exit 1
+            }
+            ! grep -Fq "download_detour: 'main-out'" "$generator" || {
+              echo "::error::HomeProxy rule-set bootstrap downloads still depend on main-out" >&2
+              exit 1
+            }
+            grep -Fq "function is_placeholder_subscription_node(config)" "$updater" || {
+              echo "::error::HomeProxy placeholder subscription node helper is missing" >&2
+              exit 1
+            }
+            grep -Fq "Skipping placeholder subscription node" "$updater" || {
+              echo "::error::HomeProxy placeholder subscription node check is missing" >&2
+              exit 1
+            }
+            grep -Fq "No main node is selected, switching to the first node." "$updater" || {
+              echo "::error::HomeProxy first subscription node fallback is missing" >&2
+              exit 1
+            }
+            echo "OK: HomeProxy scripts patched for sing-box 1.13+, placeholder subscriptions, and first node fallback"
+          }
           require_config CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01
           require_config CONFIG_TARGET_ROOTFS_SQUASHFS
           require_config CONFIG_IPQ_MEM_PROFILE_512
@@ -347,6 +409,7 @@ jobs:
                 echo "::error::HomeProxy no longer depends on sing-box" >&2
                 exit 1
               }
+              require_homeproxy_generator_patch
               test -n "${HOMEPROXY_COMMIT:-}" || {
                 echo "::error::HomeProxy commit was not exported" >&2
                 exit 1
@@ -486,6 +549,7 @@ jobs:
                 echo "::error::HomeProxy no longer depends on sing-box" >&2
                 exit 1
               }
+              require_homeproxy_generator_patch
               test -n "${HOMEPROXY_COMMIT:-}" || {
                 echo "::error::HomeProxy commit was not exported" >&2
                 exit 1

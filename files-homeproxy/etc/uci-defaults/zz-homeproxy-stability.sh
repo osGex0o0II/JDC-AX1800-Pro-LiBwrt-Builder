@@ -7,9 +7,12 @@ uci -q set dhcp.@dnsmasq[0].localservice='1'
 uci -q set dhcp.@dnsmasq[0].ednspacket_max='1232'
 uci -q set dhcp.@dnsmasq[0].dnsforwardmax='300'
 uci -q set system.@system[0].log_size='128'
+uci -q set homeproxy.subscription.user_agent='v2ray'
+uci -q set homeproxy.subscription.allow_insecure='0'
 
 uci commit dhcp
 uci commit system
+uci commit homeproxy
 
 [ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd disable 2>/dev/null || true
 [ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd stop 2>/dev/null || true
