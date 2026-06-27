@@ -215,7 +215,8 @@ patch_sing_box_latest_stable() {
 patch_homeproxy_sing_box_compat() {
   local generator="feeds/luci/applications/luci-app-homeproxy/root/etc/homeproxy/scripts/generate_client.uc"
   local updater="feeds/luci/applications/luci-app-homeproxy/root/etc/homeproxy/scripts/update_subscriptions.uc"
-  local legacy_sniff_count legacy_override_count detour_count direct_detour_count
+  local legacy_sniff_count legacy_override_count detour_count direct_detour_count http_client_count
+  local sing_box_version="${SING_BOX_VERSION:-}"
 
   [ -f "$generator" ] || {
     echo "ERROR: HomeProxy client generator not found at ${generator}" >&2
@@ -265,13 +266,66 @@ patch_homeproxy_sing_box_compat() {
     perl -0pi -e "s~(const urltest_node = uci\\.get_all\\(uciconfig, i\\) \\|\\| \\{\\};\\n)~\$1\\t\\tif (isEmpty(urltest_node.type))\\n\\t\\t\\tcontinue;\\n~g" "$generator"
   fi
 
-  detour_count="$(awk 'index($0, "download_detour: '\''main-out'\''") { count++ } END { print count + 0 }' "$generator")"
-  if [ "$detour_count" -gt 0 ]; then
-    [ "$detour_count" -eq 3 ] || {
-      echo "ERROR: unexpected HomeProxy main-out rule-set detour count: ${detour_count}" >&2
-      exit 1
-    }
-    sed -i "s/download_detour: 'main-out'/download_detour: 'direct-out'/g" "$generator"
+  if [ -z "$sing_box_version" ]; then
+    sing_box_version="$(awk -F':=' '/^PKG_VERSION:=/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit }' feeds/packages/net/sing-box/Makefile 2>/dev/null || true)"
+  fi
+  [ -n "$sing_box_version" ] || sing_box_version="0.0.0"
+
+  if version_ge "$sing_box_version" "1.14.0"; then
+    if ! grep -Fq "default_http_client: 'direct-http'" "$generator"; then
+      if grep -Fq "config.route = {" "$generator"; then
+        sed -i "/config.route = {/a\\	default_http_client: 'direct-http'," "$generator"
+      else
+        perl -0pi -e "s~(\troute:\s*\{\n)~\${1}\t\tdefault_http_client: 'direct-http',\n~" "$generator"
+      fi
+    fi
+    if ! grep -Fq "tag: 'direct-http'" "$generator"; then
+      if grep -Fq "config.http_clients = [" "$generator" || grep -Fq "http_clients: [" "$generator"; then
+        echo "ERROR: HomeProxy HTTP clients exist but direct-http is missing" >&2
+        exit 1
+      elif grep -Fq "const config = {};" "$generator"; then
+        local tmp_generator
+        tmp_generator="$(mktemp)"
+        awk '
+          {
+            print
+            if (!inserted && $0 == "const config = {};") {
+              print ""
+              print "config.http_clients = ["
+              print "\t{"
+              print "\t\ttag: '\''direct-http'\'',"
+              print "\t\tdetour: '\''direct-out'\''"
+              print "\t}"
+              print "];"
+              inserted = 1
+            }
+          }
+          END { if (!inserted) exit 1 }
+        ' "$generator" > "$tmp_generator" || {
+          rm -f "$tmp_generator"
+          echo "ERROR: failed to add HomeProxy direct HTTP client" >&2
+          exit 1
+        }
+        cat "$tmp_generator" > "$generator"
+        rm -f "$tmp_generator"
+      else
+        perl -0pi -e "s~(\n\toutbounds:\s*\[)~,\n\thttp_clients: [\n\t\t{\n\t\t\ttag: 'direct-http',\n\t\t\tdetour: 'direct-out'\n\t\t}\n\t],\${1}~" "$generator"
+      fi
+    fi
+    sed -i \
+      -e "s/download_detour: 'main-out'/http_client: 'direct-http'/g" \
+      -e "s/download_detour: 'direct-out'/http_client: 'direct-http'/g" \
+      -e "s/download_detour: get_outbound(cfg.outbound)/http_client: cfg.type === 'remote' ? (isEmpty(cfg.outbound) ? 'direct-http' : { detour: get_outbound(cfg.outbound) }) : null/g" \
+      "$generator"
+  else
+    detour_count="$(awk 'index($0, "download_detour: '\''main-out'\''") { count++ } END { print count + 0 }' "$generator")"
+    if [ "$detour_count" -gt 0 ]; then
+      [ "$detour_count" -eq 3 ] || {
+        echo "ERROR: unexpected HomeProxy main-out rule-set detour count: ${detour_count}" >&2
+        exit 1
+      }
+      sed -i "s/download_detour: 'main-out'/download_detour: 'direct-out'/g" "$generator"
+    fi
   fi
 
   if grep -Fq "sniff_override_destination: strToBool(sniff_override)" "$generator" ||
@@ -299,11 +353,40 @@ patch_homeproxy_sing_box_compat() {
     echo "ERROR: HomeProxy standalone urltest outbound generation does not skip stale UCI sections" >&2
     exit 1
   }
-  direct_detour_count="$(awk 'index($0, "download_detour: '\''direct-out'\''") { count++ } END { print count + 0 }' "$generator")"
-  [ "$direct_detour_count" -ge 3 ] || {
-    echo "ERROR: HomeProxy remote rule-set downloads are not forced to direct-out" >&2
-    exit 1
-  }
+  if version_ge "$sing_box_version" "1.14.0"; then
+    grep -Fq "default_http_client: 'direct-http'" "$generator" || {
+      echo "ERROR: HomeProxy default HTTP client is missing for sing-box ${sing_box_version}" >&2
+      exit 1
+    }
+    grep -Fq "config.http_clients = [" "$generator" || grep -Fq "http_clients: [" "$generator" || {
+      echo "ERROR: HomeProxy direct HTTP client is missing for sing-box ${sing_box_version}" >&2
+      exit 1
+    }
+    grep -Fq "tag: 'direct-http'" "$generator" || {
+      echo "ERROR: HomeProxy direct HTTP client tag is missing for sing-box ${sing_box_version}" >&2
+      exit 1
+    }
+    http_client_defs="$(awk 'index($0, "config.http_clients = [") || index($0, "http_clients: [") { count++ } END { print count + 0 }' "$generator")"
+    [ "$http_client_defs" -eq 1 ] || {
+      echo "ERROR: unexpected HomeProxy HTTP client definition count for sing-box ${sing_box_version}: ${http_client_defs}" >&2
+      exit 1
+    }
+    http_client_count="$(awk 'index($0, "http_client: '\''direct-http'\''") { count++ } END { print count + 0 }' "$generator")"
+    [ "$http_client_count" -ge 3 ] || {
+      echo "ERROR: HomeProxy remote rule-set downloads do not use direct HTTP client" >&2
+      exit 1
+    }
+    ! grep -Fq "download_detour:" "$generator" || {
+      echo "ERROR: HomeProxy still contains deprecated rule-set download_detour for sing-box ${sing_box_version}" >&2
+      exit 1
+    }
+  else
+    direct_detour_count="$(awk 'index($0, "download_detour: '\''direct-out'\''") { count++ } END { print count + 0 }' "$generator")"
+    [ "$direct_detour_count" -ge 3 ] || {
+      echo "ERROR: HomeProxy remote rule-set downloads are not forced to direct-out" >&2
+      exit 1
+    }
+  fi
 
   if ! grep -Fq "function is_placeholder_subscription_node(config)" "$updater"; then
     local tmp_updater
@@ -408,7 +491,7 @@ patch_homeproxy_sing_box_compat() {
     exit 1
   }
 
-  echo "Patched HomeProxy scripts for sing-box 1.13+, direct rule-set bootstrap downloads, placeholder subscription filtering, and first node fallback"
+  echo "Patched HomeProxy scripts for sing-box ${sing_box_version}, direct rule-set bootstrap downloads, placeholder subscription filtering, and first node fallback"
 }
 
 verify_theme_darkmode_hooks() {

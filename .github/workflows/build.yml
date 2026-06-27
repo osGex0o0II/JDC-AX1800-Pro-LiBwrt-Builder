@@ -244,6 +244,24 @@ jobs:
             grep -Rho 'NSS_FIRMWARE_VERSION_[0-9_]*' package target 2>/dev/null | sort -u >&2 || true
             exit 1
           }
+          version_ge() {
+            awk -v have="$1" -v need="$2" '
+              function splitver(v, a) {
+                split(v, a, /[.+_-]/)
+              }
+              BEGIN {
+                splitver(have, h)
+                splitver(need, n)
+                for (i = 1; i <= 4; i++) {
+                  hv = (h[i] == "" ? 0 : h[i] + 0)
+                  nv = (n[i] == "" ? 0 : n[i] + 0)
+                  if (hv > nv) exit 0
+                  if (hv < nv) exit 1
+                }
+                exit 0
+              }
+            '
+          }
           require_recipe_patch() {
             image_mk="target/linux/qualcommax/image/ipq60xx.mk"
             awk '
@@ -262,6 +280,7 @@ jobs:
           require_homeproxy_generator_patch() {
             generator="feeds/luci/applications/luci-app-homeproxy/root/etc/homeproxy/scripts/generate_client.uc"
             updater="feeds/luci/applications/luci-app-homeproxy/root/etc/homeproxy/scripts/update_subscriptions.uc"
+            sing_box_version="${SING_BOX_VERSION:-}"
             test -f "$generator" || {
               echo "::error::HomeProxy client generator is missing" >&2
               exit 1
@@ -270,6 +289,10 @@ jobs:
               echo "::error::HomeProxy subscription updater is missing" >&2
               exit 1
             }
+            if [ -z "$sing_box_version" ]; then
+              sing_box_version="$(awk -F':=' '/^PKG_VERSION:=/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit }' feeds/packages/net/sing-box/Makefile 2>/dev/null || true)"
+            fi
+            test -n "$sing_box_version" || sing_box_version="0.0.0"
             ! grep -Fq "sniff_override_destination: strToBool(sniff_override)" "$generator" || {
               echo "::error::HomeProxy still contains legacy sing-box inbound sniff fields" >&2
               exit 1
@@ -298,15 +321,44 @@ jobs:
               echo "::error::HomeProxy stale urltest outbound skip is missing" >&2
               exit 1
             }
-            direct_detours="$(awk 'index($0, "download_detour: '\''direct-out'\''") { count++ } END { print count + 0 }' "$generator")"
-            test "$direct_detours" -ge 3 || {
-              echo "::error::HomeProxy rule-set bootstrap downloads are not direct-out" >&2
-              exit 1
-            }
-            ! grep -Fq "download_detour: 'main-out'" "$generator" || {
-              echo "::error::HomeProxy rule-set bootstrap downloads still depend on main-out" >&2
-              exit 1
-            }
+            if version_ge "$sing_box_version" "1.14.0"; then
+              grep -Fq "default_http_client: 'direct-http'" "$generator" || {
+                echo "::error::HomeProxy default HTTP client is missing for sing-box ${sing_box_version}" >&2
+                exit 1
+              }
+              grep -Fq "config.http_clients = [" "$generator" || grep -Fq "http_clients: [" "$generator" || {
+                echo "::error::HomeProxy direct HTTP client is missing for sing-box ${sing_box_version}" >&2
+                exit 1
+              }
+              grep -Fq "tag: 'direct-http'" "$generator" || {
+                echo "::error::HomeProxy direct HTTP client tag is missing for sing-box ${sing_box_version}" >&2
+                exit 1
+              }
+              http_client_defs="$(awk 'index($0, "config.http_clients = [") || index($0, "http_clients: [") { count++ } END { print count + 0 }' "$generator")"
+              test "$http_client_defs" -eq 1 || {
+                echo "::error::Unexpected HomeProxy HTTP client definition count for sing-box ${sing_box_version}: ${http_client_defs}" >&2
+                exit 1
+              }
+              http_clients="$(awk 'index($0, "http_client: '\''direct-http'\''") { count++ } END { print count + 0 }' "$generator")"
+              test "$http_clients" -ge 3 || {
+                echo "::error::HomeProxy rule-set bootstrap downloads do not use direct HTTP client" >&2
+                exit 1
+              }
+              ! grep -Fq "download_detour:" "$generator" || {
+                echo "::error::HomeProxy still contains deprecated rule-set download_detour for sing-box ${sing_box_version}" >&2
+                exit 1
+              }
+            else
+              direct_detours="$(awk 'index($0, "download_detour: '\''direct-out'\''") { count++ } END { print count + 0 }' "$generator")"
+              test "$direct_detours" -ge 3 || {
+                echo "::error::HomeProxy rule-set bootstrap downloads are not direct-out" >&2
+                exit 1
+              }
+              ! grep -Fq "download_detour: 'main-out'" "$generator" || {
+                echo "::error::HomeProxy rule-set bootstrap downloads still depend on main-out" >&2
+                exit 1
+              }
+            fi
             grep -Fq "function is_placeholder_subscription_node(config)" "$updater" || {
               echo "::error::HomeProxy placeholder subscription node helper is missing" >&2
               exit 1
@@ -319,7 +371,7 @@ jobs:
               echo "::error::HomeProxy first subscription node fallback is missing" >&2
               exit 1
             }
-            echo "OK: HomeProxy scripts patched for sing-box 1.13+, placeholder subscriptions, and first node fallback"
+            echo "OK: HomeProxy scripts patched for sing-box ${sing_box_version}, placeholder subscriptions, and first node fallback"
           }
           require_config CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01
           require_config CONFIG_TARGET_ROOTFS_SQUASHFS
