@@ -10,5 +10,4 @@ files/etc/init.d/** text eol=lf
 files/usr/sbin/** text eol=lf
 files-daede/etc/uci-defaults/** text eol=lf
 files-homeproxy/etc/uci-defaults/** text eol=lf
-files-ultimate/etc/uci-defaults/** text eol=lf
 scripts/** text eol=lf

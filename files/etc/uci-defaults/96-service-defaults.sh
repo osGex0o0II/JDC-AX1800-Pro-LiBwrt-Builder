@@ -9,6 +9,10 @@ uci commit firewall
 uci -q set network.globals.packet_steering='0'
 uci commit network
 
+uci -q set 'dropbear.@dropbear[0].PasswordAuth=off'
+uci -q set 'dropbear.@dropbear[0].RootPasswordAuth=off'
+uci commit dropbear
+
 # TTYD is useful for recovery, but should not listen until explicitly enabled.
 [ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd disable 2>/dev/null || true
 [ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd stop 2>/dev/null || true
@@ -17,5 +21,7 @@ uci commit network
 [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart 2>/dev/null || true
 [ -x /etc/init.d/jdc-unmount-backup-rootfs ] && /etc/init.d/jdc-unmount-backup-rootfs enable 2>/dev/null || true
 [ -x /usr/sbin/jdc-unmount-backup-rootfs ] && /usr/sbin/jdc-unmount-backup-rootfs 2>/dev/null || true
+[ -x /etc/init.d/jdc-cpu-governor ] && /etc/init.d/jdc-cpu-governor enable 2>/dev/null || true
+[ -x /etc/init.d/jdc-cpu-governor ] && /etc/init.d/jdc-cpu-governor start 2>/dev/null || true
 
 exit 0

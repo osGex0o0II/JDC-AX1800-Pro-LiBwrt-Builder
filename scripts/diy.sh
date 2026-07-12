@@ -3,9 +3,16 @@ set -euo pipefail
 
 # diy.sh - Apply custom configurations before build
 # Usage: bash diy.sh <variant>
-#   variant: core | core-daede | ultimate
+#   variant: core | core-daede
 
 VARIANT="${1:-core}"
+case "$VARIANT" in
+  core|core-daede) ;;
+  *)
+    echo "ERROR: unsupported variant: ${VARIANT}" >&2
+    exit 64
+    ;;
+esac
 OPENWRT_DIR="${OPENWRT_PATH:-openwrt}"
 cd "$OPENWRT_DIR"
 
@@ -38,14 +45,45 @@ latest_semver_git_tag() {
     awk 'END { print $4 }'
 }
 
-latest_date_git_tag() {
+latest_stable_github_release_tag() {
   local repo="$1"
-  git_tag_names "$repo" |
-    sed -nE \
-      -e 's/^v([0-9]{4})\.([0-9]{2})\.([0-9]{2})$/\1 \2 \3 0 &/p' \
-      -e 's/^v([0-9]{4})\.([0-9]{2})\.([0-9]{2})\.([0-9]+)$/\1 \2 \3 \4 &/p' |
-    sort -n -k1,1 -k2,2 -k3,3 -k4,4 |
-    awk 'END { print $5 }'
+  local tag_pattern="$2"
+  local payload
+  local -a curl_args=(
+    --retry 5
+    --retry-delay 2
+    --retry-all-errors
+    -fsSL
+    -H "Accept: application/vnd.github+json"
+  )
+
+  command -v python3 >/dev/null 2>&1 || {
+    echo "ERROR: python3 is required to validate GitHub Release metadata" >&2
+    return 1
+  }
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    curl_args+=( -H "Authorization: Bearer ${GITHUB_TOKEN}" )
+  fi
+  payload="$(curl "${curl_args[@]}" "https://api.github.com/repos/${repo}/releases/latest")" || {
+    echo "ERROR: failed to query latest stable GitHub Release for ${repo}" >&2
+    return 1
+  }
+
+  printf '%s' "$payload" | python3 -c '
+import json
+import re
+import sys
+
+pattern = sys.argv[1]
+release = json.load(sys.stdin)
+tag = release.get("tag_name", "")
+if release.get("draft") or release.get("prerelease") or re.fullmatch(pattern, tag) is None:
+    raise SystemExit(1)
+print(tag)
+' "$tag_pattern" || {
+    echo "ERROR: latest GitHub Release for ${repo} is not an accepted stable tag" >&2
+    return 1
+  }
 }
 
 makefile_value() {
@@ -109,6 +147,65 @@ select_latest_nss_firmware() {
   fi
   append_github_env "NSS_FIRMWARE_VERSION=${symbol#NSS_FIRMWARE_VERSION_}"
   echo "Selected latest NSS firmware ${symbol#NSS_FIRMWARE_VERSION_}"
+}
+
+dts_node_is_disabled() {
+  local dts="$1"
+  local node="$2"
+
+  awk -v node="&${node}" '
+    $0 == node " {" { in_node = 1; next }
+    in_node && /status = "disabled";/ { found = 1 }
+    in_node && /^};$/ { in_node = 0 }
+    END { exit !found }
+  ' "$dts"
+}
+
+patch_wired_only_dts() {
+  local dts="target/linux/qualcommax/dts/ipq6000-re-ss-01.dts"
+  local target_mk="target/linux/qualcommax/Makefile"
+  local nss_patch
+
+  [ -f "$dts" ] || {
+    echo "ERROR: JDCloud RE-SS-01 DTS not found" >&2
+    exit 1
+  }
+  [ -f "$target_mk" ] || {
+    echo "ERROR: qualcommax target Makefile not found" >&2
+    exit 1
+  }
+
+  sed -i '/^[[:space:]]*kmod-qca-nss-drv-vxlanmgr \\/s/[[:space:]]*\\$/ /' "$target_mk"
+  sed -i '/^[[:space:]]*kmod-qca-nss-drv-wifi-meshmgr[[:space:]]*$/d' "$target_mk"
+
+  for node in wifi q6v5_wcss q6_region q6_etr_region m3_dump_region; do
+    if ! dts_node_is_disabled "$dts" "$node"; then
+      cat >> "$dts" <<EOF
+
+&${node} {
+	status = "disabled";
+};
+EOF
+    fi
+    dts_node_is_disabled "$dts" "$node" || {
+      echo "ERROR: failed to disable ${node} in JDCloud DTS" >&2
+      exit 1
+    }
+  done
+
+  ! grep -Fq 'kmod-qca-nss-drv-wifi-meshmgr' "$target_mk" || {
+    echo "ERROR: NSS Wi-Fi mesh manager remains in target defaults" >&2
+    exit 1
+  }
+  grep -Fq '#include "ipq6018-nss.dtsi"' "$dts" || {
+    echo "ERROR: JDCloud DTS no longer includes the NSS device tree" >&2
+    exit 1
+  }
+  nss_patch="$(grep -R -l -m1 'nss_region: memory@40000000' target/linux/qualcommax/patches-* 2>/dev/null | head -n 1 || true)"
+  [ -n "$nss_patch" ] && grep -Fq 'reg = <0x0 0x40000000 0x0 0x01000000>;' "$nss_patch" || {
+    echo "ERROR: independent 16 MiB NSS reserved-memory region is missing" >&2
+    exit 1
+  }
 }
 
 patch_sing_box_latest_stable() {
@@ -229,6 +326,11 @@ patch_homeproxy_sing_box_compat() {
   sed -i 's/\r$//' "$generator"
   sed -i 's/\r$//' "$updater"
 
+  sed -i \
+    -e 's/match(proxy_mode), \/tproxy\//match(proxy_mode, \/tproxy\/)/g' \
+    -e 's/match(proxy_mode), \/tun\//match(proxy_mode, \/tun\/)/g' \
+    "$generator"
+
   legacy_sniff_count="$(awk 'index($0, "sniff: true") { count++ } END { print count + 0 }' "$generator")"
   legacy_override_count="$(awk 'index($0, "sniff_override_destination: strToBool(sniff_override)") { count++ } END { print count + 0 }' "$generator")"
   if [ "$legacy_sniff_count" -gt 0 ] || [ "$legacy_override_count" -gt 0 ]; then
@@ -331,6 +433,11 @@ patch_homeproxy_sing_box_compat() {
   if grep -Fq "sniff_override_destination: strToBool(sniff_override)" "$generator" ||
      grep -Fq "sniff: true" "$generator"; then
     echo "ERROR: HomeProxy still contains legacy sing-box inbound sniff fields" >&2
+    exit 1
+  fi
+  if grep -Fq "match(proxy_mode), /tproxy/" "$generator" ||
+     grep -Fq "match(proxy_mode), /tun/" "$generator"; then
+    echo "ERROR: HomeProxy contains malformed proxy_mode match expressions" >&2
     exit 1
   fi
   grep -Fq "inbound: ['mixed-in', 'redirect-in', 'tproxy-in', 'tun-in']" "$generator" || {
@@ -588,10 +695,153 @@ patch_daede_theme() {
   }
 }
 
+harden_daede_runtime() {
+  local daed_config="package/daed/files/daed.config"
+  local daed_init="package/daed/files/daed.init"
+  local daed_view="package/luci-app-daede/htdocs/luci-static/resources/view/daede/daed.js"
+  local backend_view="package/luci-app-daede/htdocs/luci-static/resources/view/daede/backend.js"
+  local converter_view="package/luci-app-daede/htdocs/luci-static/resources/view/daede/converter.js"
+  local graphql_relay="package/luci-app-daede/root/www/cgi-bin/daede-graphql"
+  local package_updater="package/luci-app-daede/root/usr/share/luci-app-daede/update-pkg.sh"
+  local unsafe_force_option="--force-broken""-world"
+
+  for file in "$daed_config" "$daed_init" "$daed_view" "$backend_view" "$converter_view"; do
+    [ -f "$file" ] || {
+      echo "ERROR: daede runtime file is missing: ${file}" >&2
+      exit 1
+    }
+    sed -i 's/0\.0\.0\.0:2023/127.0.0.1:2023/g' "$file"
+  done
+
+  cat > "$graphql_relay" <<'EOF'
+#!/bin/sh
+
+reply() {
+	printf 'Status: %s\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n\r\n%s\n' "$1" "$2"
+	exit 0
+}
+
+[ "${REQUEST_METHOD:-}" = "POST" ] || \
+	reply '405 Method Not Allowed' '{"errors":[{"message":"POST only"}]}'
+
+session="$(printf '%s' "${HTTP_COOKIE:-}" | awk -F';' '
+	{
+		for (i = 1; i <= NF; i++) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+			if ($i ~ /^sysauth(_https)?=/) {
+				sub(/^[^=]*=/, "", $i)
+				print $i
+				exit
+			}
+		}
+	}
+')"
+printf '%s' "$session" | grep -Eq '^[0-9A-Fa-f]{32}$' || \
+	reply '403 Forbidden' '{"errors":[{"message":"valid LuCI session required"}]}'
+ubus call session get "{\"ubus_rpc_session\":\"${session}\"}" >/dev/null 2>&1 || \
+	reply '403 Forbidden' '{"errors":[{"message":"valid LuCI session required"}]}'
+access="$(ubus call session access "{\"ubus_rpc_session\":\"${session}\",\"scope\":\"access-group\",\"object\":\"luci-app-daede\",\"function\":\"write\"}" 2>/dev/null)" || \
+	reply '403 Forbidden' '{"errors":[{"message":"daede write access required"}]}'
+printf '%s' "$access" | grep -Eq '"access"[[:space:]]*:[[:space:]]*true' || \
+	reply '403 Forbidden' '{"errors":[{"message":"daede write access required"}]}'
+
+case "${CONTENT_TYPE:-}" in
+	application/json|application/json\;*) ;;
+	*) reply '415 Unsupported Media Type' '{"errors":[{"message":"application/json required"}]}' ;;
+esac
+
+len="${CONTENT_LENGTH:-}"
+case "$len" in
+	''|*[!0-9]*) reply '400 Bad Request' '{"errors":[{"message":"invalid content length"}]}' ;;
+esac
+[ "$len" -gt 0 ] || reply '400 Bad Request' '{"errors":[{"message":"empty request body"}]}'
+[ "$len" -le 1048576 ] || reply '413 Payload Too Large' '{"errors":[{"message":"request body exceeds 1 MiB"}]}'
+
+auth="${HTTP_AUTHORIZATION:-}"
+if [ -n "$auth" ] && ! printf '%s' "$auth" | grep -Eq '^Bearer [A-Za-z0-9._~-]+$'; then
+	reply '400 Bad Request' '{"errors":[{"message":"invalid authorization header"}]}'
+fi
+
+body="$(mktemp /tmp/daede-gql.XXXXXX)" || \
+	reply '500 Internal Server Error' '{"errors":[{"message":"temporary file failed"}]}'
+cleanup() { rm -f "$body"; }
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+head -c "$len" > "$body" || \
+	reply '400 Bad Request' '{"errors":[{"message":"request body read failed"}]}'
+[ "$(wc -c < "$body")" -eq "$len" ] || \
+	reply '400 Bad Request' '{"errors":[{"message":"incomplete request body"}]}'
+
+port="$(uci -q get daed.config.listen_addr | sed -n 's/.*:\([0-9]\{1,5\}\)$/\1/p')"
+case "$port" in
+	''|*[!0-9]*) port=2023 ;;
+esac
+[ "$port" -ge 1 ] && [ "$port" -le 65535 ] || port=2023
+
+if [ -n "$auth" ]; then
+	response="$(uclient-fetch -q -O - \
+		--header='Content-Type: application/json' \
+		--header="Authorization: $auth" \
+		--post-file="$body" \
+		"http://127.0.0.1:${port}/graphql" 2>/dev/null)"
+else
+	response="$(uclient-fetch -q -O - \
+		--header='Content-Type: application/json' \
+		--post-file="$body" \
+		"http://127.0.0.1:${port}/graphql" 2>/dev/null)"
+fi
+rc=$?
+[ "$rc" -eq 0 ] || reply '502 Bad Gateway' '{"errors":[{"message":"daed relay failed"}]}'
+reply '200 OK' "$response"
+EOF
+
+  cat > "$package_updater" <<'EOF'
+#!/bin/sh
+echo "Package self-update is disabled; rebuild firmware from pinned sources instead." >&2
+exit 77
+EOF
+
+  grep -q "127.0.0.1:2023" "$daed_config" || {
+    echo "ERROR: daed does not default to loopback" >&2
+    exit 1
+  }
+  if grep -R -Fq -- "0.0.0.0:2023" package/daed package/luci-app-daede; then
+    echo "ERROR: daede still exposes its default listener on all interfaces" >&2
+    exit 1
+  fi
+  grep -q 'ubus call session get' "$graphql_relay" || {
+    echo "ERROR: daede GraphQL relay lacks LuCI session validation" >&2
+    exit 1
+  }
+  grep -q 'ubus call session access' "$graphql_relay" &&
+    grep -q 'access-group' "$graphql_relay" &&
+    grep -q 'luci-app-daede' "$graphql_relay" &&
+    grep -q '\\"function\\":\\"write\\"' "$graphql_relay" || {
+    echo "ERROR: daede GraphQL relay lacks LuCI ACL authorization" >&2
+    exit 1
+  }
+  grep -q '1048576' "$graphql_relay" || {
+    echo "ERROR: daede GraphQL relay lacks its request size limit" >&2
+    exit 1
+  }
+  grep -q '415 Unsupported Media Type' "$graphql_relay" || {
+    echo "ERROR: daede GraphQL relay does not require JSON requests" >&2
+    exit 1
+  }
+  grep -q 'Package self-update is disabled' "$package_updater" || {
+    echo "ERROR: daede package self-update was not disabled" >&2
+    exit 1
+  }
+  if grep -R -Fq -- "$unsafe_force_option" package/daed package/luci-app-daede; then
+    echo "ERROR: daede contains an unsafe package-manager override" >&2
+    exit 1
+  fi
+}
+
 inject_daede() {
   local daede_tag daede_commit dae_version daed_version luci_app_daede_version
 
-  echo "Injecting openwrt-daede (latest stable tag)"
+  echo "Injecting openwrt-daede (latest stable GitHub Release)"
 
   rm -rf \
     package/dae \
@@ -606,7 +856,9 @@ inject_daede() {
     package/feeds/luci/luci-app-daed \
     package/feeds/luci/luci-app-daede
 
-  daede_tag="$(latest_date_git_tag https://github.com/kenzok8/openwrt-daede.git)"
+  daede_tag="$(latest_stable_github_release_tag \
+    kenzok8/openwrt-daede \
+    'v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(?:\.[0-9]+)?')"
   [ -n "$daede_tag" ] || {
     echo "ERROR: failed to resolve latest stable openwrt-daede tag" >&2
     exit 1
@@ -614,12 +866,17 @@ inject_daede() {
 
   git -c advice.detachedHead=false clone --depth 1 --branch "$daede_tag" https://github.com/kenzok8/openwrt-daede package/openwrt-daede
   daede_commit="$(git -C package/openwrt-daede rev-parse HEAD)"
+  [ "$(git -C package/openwrt-daede rev-parse "${daede_tag}^{commit}")" = "$daede_commit" ] || {
+    echo "ERROR: cloned openwrt-daede commit does not match Release tag ${daede_tag}" >&2
+    exit 1
+  }
   mv package/openwrt-daede/dae package/dae
   mv package/openwrt-daede/daed package/daed
   mv package/openwrt-daede/luci-app-daede package/luci-app-daede
   rm -rf package/openwrt-daede
 
   patch_daede_theme
+  harden_daede_runtime
 
   grep -q '^PKG_NAME:=dae$' package/dae/Makefile || {
     echo "ERROR: unexpected dae package name" >&2
@@ -705,6 +962,7 @@ KERNEL_VER="${KERNEL_VER:-6.12}"
 KERNEL_CFG="target/linux/qualcommax/config-${KERNEL_VER}"
 echo "Detected kernel ${KERNEL_VER} (config: ${KERNEL_CFG})"
 normalize_overlay_modes
+patch_wired_only_dts
 select_latest_nss_firmware
 
 # The retail AX1800 Pro layout seen on QWRT/iStoreOS uses 12 MiB HLOS slots
@@ -712,8 +970,14 @@ select_latest_nss_firmware
 # closest DTS match, but its default 6 MiB kernel slot is too small for 6.12 NSS.
 JDC_IMAGE_MK="target/linux/qualcommax/image/ipq60xx.mk"
 if [ -f "$JDC_IMAGE_MK" ]; then
+  compat_present="$(awk '
+    /^define Device\/jdcloud_re-ss-01$/ { in_device = 1 }
+    in_device && /SUPPORTED_DEVICES \+= jdcloud,ax1800-pro/ { found = 1 }
+    /^endef$/ && in_device { in_device = 0 }
+    END { print found + 0 }
+  ' "$JDC_IMAGE_MK")"
   tmp_image_mk="$(mktemp)"
-  awk '
+  awk -v compat_seen="$compat_present" '
     /^define Device\/jdcloud_re-ss-01$/ { in_device = 1 }
     in_device && /^[[:space:]]*KERNEL_SIZE :=/ {
       print "\tKERNEL_SIZE := 12288k"
@@ -723,6 +987,10 @@ if [ -f "$JDC_IMAGE_MK" ]; then
     in_device && /^[[:space:]]*DEVICE_PACKAGES :=/ && !compat_seen {
       print "\tSUPPORTED_DEVICES += jdcloud,ax1800-pro"
       compat_seen = 1
+    }
+    in_device { gsub(/ipq-wifi-jdcloud_re-ss-01/, ""); sub(/[[:space:]]+$/, "") }
+    in_device && /^[[:space:]]*IMAGE\/factory\.bin :=/ {
+      next
     }
     /^endef$/ && in_device { in_device = 0 }
     { print }
@@ -743,8 +1011,10 @@ if [ -f "$JDC_IMAGE_MK" ]; then
     /^define Device\/jdcloud_re-ss-01$/ { in_device = 1 }
     in_device && /KERNEL_SIZE := 12288k/ { kernel_ok = 1 }
     in_device && /SUPPORTED_DEVICES \+= jdcloud,ax1800-pro/ { compat_ok = 1 }
+    in_device && /ipq-wifi-jdcloud_re-ss-01/ { wifi_package_present = 1 }
+    in_device && /IMAGE\/factory\.bin :=/ { factory_present = 1 }
     /^endef$/ && in_device { in_device = 0 }
-    END { exit !(kernel_ok && compat_ok) }
+    END { exit !(kernel_ok && compat_ok && !wifi_package_present && !factory_present) }
   ' "$JDC_IMAGE_MK" || {
     echo "ERROR: JDCloud AX1800 Pro image recipe verification failed" >&2
     exit 1
@@ -773,6 +1043,12 @@ for symbol in CONFIG_IKCONFIG CONFIG_IKCONFIG_PROC; do
     echo "Set ${symbol}=y in ${KERNEL_CFG}"
   fi
 done
+
+sed -i \
+  -e '/^CONFIG_QCOM_Q6V5_WCSS=/d' \
+  -e '/^# CONFIG_QCOM_Q6V5_WCSS is not set$/d' \
+  "${KERNEL_CFG}"
+echo "# CONFIG_QCOM_Q6V5_WCSS is not set" >> "${KERNEL_CFG}"
 
 # -- Write build info --
 mkdir -p files/etc
@@ -814,7 +1090,7 @@ fi
 patch_sing_box_latest_stable
 
 # -- Inject HomeProxy --
-echo "Injecting HomeProxy (latest stable tag, or latest master when upstream has no stable tags)"
+echo "Injecting HomeProxy (latest stable tag, or repository default branch when upstream has no stable tags)"
 
 rm -rf \
   feeds/luci/applications/luci-app-homeproxy \
@@ -827,7 +1103,7 @@ if [ -n "$HOMEPROXY_TAG" ]; then
   HOMEPROXY_SOURCE="stable-tag"
 else
   git clone --depth 1 https://github.com/immortalwrt/homeproxy feeds/luci/applications/luci-app-homeproxy
-  HOMEPROXY_SOURCE="master"
+  HOMEPROXY_SOURCE="default-branch"
 fi
 mkdir -p package/feeds/luci
 ln -s ../../../feeds/luci/applications/luci-app-homeproxy package/feeds/luci/luci-app-homeproxy

@@ -2,7 +2,7 @@
 
 # HomeProxy profile defaults: keep DNS entrypoint explicit and avoid exposing a
 # web terminal until the administrator starts it.
-uci -q set dhcp.@dnsmasq[0].noresolv='1'
+uci -q delete dhcp.@dnsmasq[0].noresolv
 uci -q set dhcp.@dnsmasq[0].localservice='1'
 uci -q set dhcp.@dnsmasq[0].ednspacket_max='1232'
 uci -q set dhcp.@dnsmasq[0].dnsforwardmax='300'

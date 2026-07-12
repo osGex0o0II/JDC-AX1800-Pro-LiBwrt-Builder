@@ -84,7 +84,10 @@ check_dns() {
 }
 
 check_proxy() {
-  if [ ! -x /etc/init.d/homeproxy ] || ! /etc/init.d/homeproxy enabled >/dev/null 2>&1; then
+  main_node="$(uci -q get homeproxy.config.main_node || echo nil)"
+  server_enabled="$(uci -q get homeproxy.server.enabled || echo 0)"
+
+  if [ ! -x /etc/init.d/homeproxy ] || { [ "$main_node" = "nil" ] && [ "$server_enabled" != "1" ]; }; then
     return 0
   fi
 
@@ -95,14 +98,14 @@ check_proxy() {
 }
 
 check_daede() {
-  if [ -x /etc/init.d/daed ] && /etc/init.d/daed enabled >/dev/null 2>&1; then
+  if [ -x /etc/init.d/daed ] && [ "$(uci -q get daed.config.enabled || echo 0)" = "1" ]; then
     if ! pidof daed >/dev/null 2>&1; then
       log "daed is enabled but not running"
       restart_service daed
     fi
   fi
 
-  if [ -x /etc/init.d/dae ] && /etc/init.d/dae enabled >/dev/null 2>&1; then
+  if [ -x /etc/init.d/dae ] && [ "$(uci -q get dae.config.enabled || echo 0)" = "1" ]; then
     if ! pidof dae >/dev/null 2>&1; then
       log "dae is enabled but not running"
       restart_service dae

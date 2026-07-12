@@ -1,34 +1,25 @@
 name: Build JDC AX1800 Pro LiBwrt
-run-name: ${{ inputs.variant || 'all' }} · JDC AX1800 Pro · LiBwrt main-nss
+run-name: core + core-daede · JDC AX1800 Pro · LiBwrt main-nss
 
 on:
   workflow_dispatch:
     inputs:
-      variant:
-        description: Firmware variant (all builds every variant; every successful selection updates the daily release)
-        required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - core
-          - core-daede
-          - ultimate
       repo_commit:
-        description: Lock upstream commit (leave empty for latest)
+        description: Lock upstream to a full 40-character commit SHA (leave empty for latest)
         required: false
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.inputs.variant || 'all' }}
+  group: ${{ github.workflow }}-release
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   REPO_URL: https://github.com/LiBwrt/openwrt-6.x.git
   REPO_BRANCH: main-nss
+  REPO_COMMIT: ${{ inputs.repo_commit }}
   TZ: Asia/Shanghai
 
 jobs:
@@ -55,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: ${{ fromJSON(inputs.variant == 'all' && '["core","core-daede","ultimate"]' || format('["{0}"]', inputs.variant)) }}
+        variant: ["core", "core-daede"]
     env:
       FILE_DATE: ${{ needs.metadata.outputs.file_date }}
 
@@ -71,7 +62,11 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo bash -c 'bash <(curl -fsSL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          curl -fsSL https://build-scripts.immortalwrt.org/init_build_environment.sh -o /tmp/init_build_environment.sh
+          echo "85f4b2c2aa16f8178b57250f5d2bcf4a2e0707c6b569a3b07510f41fc6185dd8  /tmp/init_build_environment.sh" > /tmp/init_build_environment.sh.sha256
+          sha256sum -c /tmp/init_build_environment.sh.sha256
+          sudo bash /tmp/init_build_environment.sh
+          rm -f /tmp/init_build_environment.sh /tmp/init_build_environment.sh.sha256
           sudo -E apt -yqq install clang llvm dos2unix libfuse-dev
           for tool in clang llc llvm-dis opt llvm-strip; do
             if ! command -v "$tool" >/dev/null 2>&1; then
@@ -101,21 +96,33 @@ jobs:
           remove-docker-images: true
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
 
       - name: Clone source
         id: clone_source
         run: |
           git clone --depth=1 -b "$REPO_BRANCH" "$REPO_URL" openwrt
-          if [ -n "${{ inputs.repo_commit }}" ]; then
+          if [ -n "$REPO_COMMIT" ]; then
+            if [[ ! "$REPO_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "::error::repo_commit must be a full 40-character hexadecimal commit SHA" >&2
+              exit 2
+            fi
             cd openwrt
-            git fetch --depth=1 origin "${{ inputs.repo_commit }}"
+            git fetch --depth=1 origin "$REPO_COMMIT"
             git -c advice.detachedHead=false checkout FETCH_HEAD
+            resolved_commit="$(git rev-parse HEAD)"
+            requested_commit="$(printf '%s' "$REPO_COMMIT" | tr 'A-F' 'a-f')"
+            if [ "$resolved_commit" != "$requested_commit" ]; then
+              echo "::error::checked-out source does not match repo_commit" >&2
+              exit 2
+            fi
             cd "$OLDPWD"
           fi
           cd openwrt
           echo "OPENWRT_PATH=$PWD" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
-          echo "SOURCE_COMMIT=$(git rev-parse --short HEAD)" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          echo "SOURCE_COMMIT=$(git rev-parse HEAD)" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           {
             echo "VERSION_INFO<<EOF"
             git show -s --date=short --format='Author: %an%nDate: %cd%nSubject: %s%nHash: %H'
@@ -138,9 +145,6 @@ jobs:
             core-daede)
               cat configs/core.config configs/core-daede.config > openwrt/.config
               ;;
-            ultimate)
-              cat configs/core.config configs/ultimate.config > openwrt/.config
-              ;;
           esac
           cd openwrt
           unset VERSION
@@ -157,16 +161,16 @@ jobs:
           } | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
 
       - name: Cache dl
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ${{ steps.clone_source.outputs.OPENWRT_PATH }}/dl
           key: openwrt-dl-jdc-ax1800-pro-libwrt-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}
 
       - name: Cache ccache
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ${{ steps.clone_source.outputs.OPENWRT_PATH }}/.ccache
-          key: openwrt-ccache-${{ matrix.variant }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-${{ hashFiles('configs/*.config', 'scripts/diy.sh', 'scripts/version.sh', 'files/**', 'files-homeproxy/**', 'files-daede/**', 'files-ultimate/**') }}
+          key: openwrt-ccache-${{ matrix.variant }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-${{ hashFiles('configs/*.config', 'scripts/diy.sh', 'scripts/version.sh', 'files/**', 'files-homeproxy/**', 'files-daede/**') }}
           restore-keys: |
             openwrt-ccache-${{ matrix.variant }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-
             openwrt-ccache-${{ matrix.variant }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-
@@ -178,6 +182,8 @@ jobs:
           $GITHUB_WORKSPACE/scripts/update-feeds.sh
 
       - name: Apply custom files and scripts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$OPENWRT_PATH/files"
           [ -d files ] && cp -a files/. "$OPENWRT_PATH/files/"
@@ -187,10 +193,6 @@ jobs:
               ;;
             core-daede)
               [ -d files-daede ] && cp -a files-daede/. "$OPENWRT_PATH/files/"
-              ;;
-            ultimate)
-              [ -d files-homeproxy ] && cp -a files-homeproxy/. "$OPENWRT_PATH/files/"
-              [ -d files-ultimate ] && cp -a files-ultimate/. "$OPENWRT_PATH/files/"
               ;;
           esac
           dos2unix scripts/diy.sh
@@ -202,9 +204,6 @@ jobs:
               ;;
             core-daede)
               cat "$GITHUB_WORKSPACE/configs/core.config" "$GITHUB_WORKSPACE/configs/core-daede.config" > .config
-              ;;
-            ultimate)
-              cat "$GITHUB_WORKSPACE/configs/core.config" "$GITHUB_WORKSPACE/configs/ultimate.config" > .config
               ;;
           esac
           "$GITHUB_WORKSPACE/scripts/diy.sh" "${{ matrix.variant }}"
@@ -264,18 +263,51 @@ jobs:
           }
           require_recipe_patch() {
             image_mk="target/linux/qualcommax/image/ipq60xx.mk"
+            dts="target/linux/qualcommax/dts/ipq6000-re-ss-01.dts"
+            target_mk="target/linux/qualcommax/Makefile"
+            kernel_config="target/linux/qualcommax/config-${VERSION_KERNEL}"
+            nss_patch="$(grep -R -l -m1 'nss_region: memory@40000000' target/linux/qualcommax/patches-* 2>/dev/null | head -n 1 || true)"
             awk '
               /^define Device\/jdcloud_re-ss-01$/ { in_device = 1 }
               in_device && /KERNEL_SIZE := 12288k/ { kernel_ok = 1 }
               in_device && /SUPPORTED_DEVICES \+= jdcloud,ax1800-pro/ { compat_ok = 1 }
+              in_device && /ipq-wifi-jdcloud_re-ss-01/ { wifi_package_present = 1 }
+              in_device && /IMAGE\/factory\.bin :=/ { factory_present = 1 }
               /^endef$/ && in_device { in_device = 0 }
-              END { exit !(kernel_ok && compat_ok) }
+              END { exit !(kernel_ok && compat_ok && !wifi_package_present && !factory_present) }
             ' "$image_mk" || {
               echo "::error::JDCloud AX1800 Pro image recipe patch is missing or incomplete" >&2
               sed -n '/define Device\/jdcloud_re-ss-01/,/endef/p' "$image_mk" >&2
               exit 1
             }
-            echo "OK: JDCloud image recipe patched for 12MiB HLOS and ax1800-pro compat"
+            for node in wifi q6v5_wcss q6_region q6_etr_region m3_dump_region; do
+              awk -v node="&${node}" '
+                $0 == node " {" { in_node = 1; next }
+                in_node && /status = "disabled";/ { found = 1 }
+                in_node && /^};$/ { in_node = 0 }
+                END { exit !found }
+              ' "$dts" || {
+                echo "::error::JDCloud DTS node ${node} is not disabled" >&2
+                exit 1
+              }
+            done
+            ! grep -Fq 'kmod-qca-nss-drv-wifi-meshmgr' "$target_mk" || {
+              echo "::error::NSS Wi-Fi mesh manager remains in target defaults" >&2
+              exit 1
+            }
+            grep -Fq '#include "ipq6018-nss.dtsi"' "$dts" || {
+              echo "::error::JDCloud DTS no longer includes the NSS device tree" >&2
+              exit 1
+            }
+            [ -n "$nss_patch" ] && grep -Fq 'reg = <0x0 0x40000000 0x0 0x01000000>;' "$nss_patch" || {
+              echo "::error::Independent 16 MiB NSS reserved-memory region is missing" >&2
+              exit 1
+            }
+            grep -qx '# CONFIG_QCOM_Q6V5_WCSS is not set' "$kernel_config" || {
+              echo "::error::Q6V5 WCSS remoteproc remains enabled in the target kernel" >&2
+              exit 1
+            }
+            echo "OK: JDCloud recipe and DTS are wired-only; Q6/WCSS reservations are disabled"
           }
           require_homeproxy_generator_patch() {
             generator="feeds/luci/applications/luci-app-homeproxy/root/etc/homeproxy/scripts/generate_client.uc"
@@ -371,6 +403,14 @@ jobs:
               echo "::error::HomeProxy first subscription node fallback is missing" >&2
               exit 1
             }
+            ! grep -Fq "match(proxy_mode), /tproxy/" "$generator" || {
+              echo "::error::HomeProxy contains malformed tproxy match syntax" >&2
+              exit 1
+            }
+            ! grep -Fq "match(proxy_mode), /tun/" "$generator" || {
+              echo "::error::HomeProxy contains malformed tun match syntax" >&2
+              exit 1
+            }
             echo "OK: HomeProxy scripts patched for sing-box ${sing_box_version}, placeholder subscriptions, and first node fallback"
           }
           require_config CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01
@@ -442,6 +482,10 @@ jobs:
           forbid_config CONFIG_PACKAGE_kmod-cfg80211
           forbid_config CONFIG_PACKAGE_kmod-mac80211
           forbid_config CONFIG_PACKAGE_wpad-openssl
+          forbid_config CONFIG_PACKAGE_hostapd-common
+          forbid_config CONFIG_PACKAGE_ipq-wifi-jdcloud_re-ss-01
+          forbid_config CONFIG_PACKAGE_kmod-qca-nss-drv-wifi-meshmgr
+          forbid_config CONFIG_PACKAGE_luci-app-package-manager
           require_recipe_patch
           case "${{ matrix.variant }}" in
             core)
@@ -533,7 +577,22 @@ jobs:
               grep -q "^PKG_VERSION:=${LUCI_APP_DAEDE_VERSION}$" package/luci-app-daede/Makefile
               grep -Fq 'default PACKAGE_$(PKG_NAME)_daed' package/luci-app-daede/Makefile
               grep -Fq '+PACKAGE_$(PKG_NAME)_dae:dae +PACKAGE_$(PKG_NAME)_daed:daed' package/luci-app-daede/Makefile
+              grep -q '127.0.0.1:2023' package/daed/files/daed.config
+              ! grep -R -Fq -- '0.0.0.0:2023' package/daed package/luci-app-daede
               grep -q 'uclient-fetch' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -Eq 'sysauth(_https)?' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -q 'ubus call session get' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -q 'ubus call session access' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -q 'access-group' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -q 'luci-app-daede' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -q '\"function\":\"write\"' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -q '1048576' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -q '415 Unsupported Media Type' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -q 'trap cleanup EXIT' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -q 'rm -f.*body' package/luci-app-daede/root/www/cgi-bin/daede-graphql
+              grep -q 'Package self-update is disabled' package/luci-app-daede/root/usr/share/luci-app-daede/update-pkg.sh
+              unsafe_force_option='--force-broken''-world'
+              ! grep -R -Fq -- "$unsafe_force_option" package/daed package/luci-app-daede
               grep -q 'DAEDE_FETCH_BIN:-uclient-fetch' package/luci-app-daede/root/usr/share/luci-app-daede/fetch-clash-yaml.sh
               grep -q 'ucode -e' package/luci-app-daede/root/usr/share/luci-app-daede/config-backup.sh
               grep -q 'curl -fsSL' package/luci-app-daede/root/usr/share/luci-app-daede/update-geo.sh
@@ -584,66 +643,6 @@ jobs:
               forbid_config CONFIG_PACKAGE_sing-box
               forbid_config CONFIG_PACKAGE_dockerd
               ;;
-            ultimate)
-              test -f feeds/luci/applications/luci-app-homeproxy/Makefile || {
-                echo "::error::HomeProxy source was not injected at feeds/luci/applications/luci-app-homeproxy" >&2
-                exit 1
-              }
-              test -L package/feeds/luci/luci-app-homeproxy || {
-                echo "::error::HomeProxy feed package symlink is missing" >&2
-                exit 1
-              }
-              grep -q '^LUCI_TITLE:=The modern ImmortalWrt proxy platform' feeds/luci/applications/luci-app-homeproxy/Makefile || {
-                echo "::error::Unexpected HomeProxy Makefile after injection" >&2
-                exit 1
-              }
-              grep -q '+sing-box' feeds/luci/applications/luci-app-homeproxy/Makefile || {
-                echo "::error::HomeProxy no longer depends on sing-box" >&2
-                exit 1
-              }
-              require_homeproxy_generator_patch
-              test -n "${HOMEPROXY_COMMIT:-}" || {
-                echo "::error::HomeProxy commit was not exported" >&2
-                exit 1
-              }
-              test -n "${HOMEPROXY_SOURCE:-}" || {
-                echo "::error::HomeProxy source type was not exported" >&2
-                exit 1
-              }
-              test -n "${SING_BOX_VERSION:-}" || {
-                echo "::error::sing-box latest stable version was not exported" >&2
-                exit 1
-              }
-              grep -q "^PKG_VERSION:=${SING_BOX_VERSION}$" feeds/packages/net/sing-box/Makefile || {
-                echo "::error::sing-box Makefile does not match latest stable ${SING_BOX_VERSION}" >&2
-                exit 1
-              }
-              grep -q "^PKG_HASH:=${SING_BOX_SOURCE_SHA256}$" feeds/packages/net/sing-box/Makefile || {
-                echo "::error::sing-box Makefile hash does not match downloaded stable source" >&2
-                exit 1
-              }
-              test -f "dl/${SING_BOX_SOURCE_FILE}" || {
-                echo "::error::cached sing-box source tarball is missing" >&2
-                exit 1
-              }
-              echo "${SING_BOX_SOURCE_SHA256}  dl/${SING_BOX_SOURCE_FILE}" | sha256sum -c -
-              require_config CONFIG_PACKAGE_luci-app-homeproxy
-              require_config CONFIG_PACKAGE_sing-box
-              require_config CONFIG_PACKAGE_kmod-nft-socket
-              require_config CONFIG_PACKAGE_luci-app-aria2
-              require_config CONFIG_PACKAGE_aria2
-              require_config CONFIG_PACKAGE_kmod-fs-ntfs3
-              require_config CONFIG_PACKAGE_kmod-usb-storage-uas
-              forbid_config CONFIG_PACKAGE_dockerd
-              forbid_config CONFIG_PACKAGE_docker
-              forbid_config CONFIG_PACKAGE_docker-compose
-              forbid_config CONFIG_PACKAGE_containerd
-              forbid_config CONFIG_PACKAGE_runc
-              forbid_config CONFIG_PACKAGE_luci-app-dockerman
-              forbid_config CONFIG_PACKAGE_luci-lib-docker
-              forbid_config CONFIG_PACKAGE_cgroupfs-mount
-              forbid_config CONFIG_PACKAGE_tini
-              ;;
           esac
           make download -j"$(nproc)"
           find dl -maxdepth 1 -type f -size -1024c -print -delete
@@ -679,17 +678,13 @@ jobs:
         run: |
           cd "$OPENWRT_PATH/bin/targets"/*/*
           ls -lh
-          test -f ./*jdcloud_re-ss-01*squashfs-factory*
           test -f ./*jdcloud_re-ss-01*squashfs-sysupgrade*
           cat sha256sums
           VARIANT="${{ matrix.variant }}"
-          for f in *jdcloud_re-ss-01*squashfs-factory*; do
-            [ -f "$f" ] && mv "$f" "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT}-factory.bin"
-          done
           for f in *jdcloud_re-ss-01*squashfs-sysupgrade*; do
             [ -f "$f" ] && mv "$f" "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT}-sysupgrade.bin"
           done
-          sha256sum JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT}-*.bin > "sha256sums-${VARIANT}"
+          sha256sum "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${VARIANT}-sysupgrade.bin" > "sha256sums-${VARIANT}"
           {
             echo "Builder repository: ${GITHUB_REPOSITORY}"
             echo "Builder commit: ${GITHUB_SHA}"
@@ -706,9 +701,6 @@ jobs:
             echo "core.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/core.config" | awk '{print $1}')"
             if [ "${VARIANT}" = "core-daede" ]; then
               echo "core-daede.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/core-daede.config" | awk '{print $1}')"
-            fi
-            if [ "${VARIANT}" = "ultimate" ]; then
-              echo "ultimate.config SHA256: $(sha256sum "${GITHUB_WORKSPACE}/configs/ultimate.config" | awk '{print $1}')"
             fi
             echo "DIY script SHA256: $(sha256sum "${GITHUB_WORKSPACE}/scripts/diy.sh" | awk '{print $1}')"
             echo "NSS firmware version: ${NSS_FIRMWARE_VERSION:-unknown}"
@@ -745,11 +737,11 @@ jobs:
 
       - name: Upload firmware artifact
         if: steps.compile.outputs.status == 'success'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: firmware-${{ matrix.variant }}
           path: |
-            ${{ steps.organize.outputs.FIRMWARE_PATH }}/*.bin
+            ${{ steps.organize.outputs.FIRMWARE_PATH }}/*-sysupgrade.bin
             ${{ steps.organize.outputs.FIRMWARE_PATH }}/sha256sums-${{ matrix.variant }}
             ${{ steps.organize.outputs.FIRMWARE_PATH }}/BUILD-MANIFEST-${{ matrix.variant }}.txt
             ${{ steps.organize.outputs.FIRMWARE_PATH }}/build-info-${{ needs.metadata.outputs.file_date }}-${{ matrix.variant }}.tar.gz
@@ -766,11 +758,10 @@ jobs:
     env:
       FILE_DATE: ${{ needs.metadata.outputs.file_date }}
       RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
-      REQUESTED_VARIANT: ${{ inputs.variant }}
 
     steps:
       - name: Download firmware artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: firmware-*
           path: firmware
@@ -779,7 +770,12 @@ jobs:
       - name: Prepare release body
         run: |
           cd firmware
+          test -f BUILD-MANIFEST-core.txt
+          test -f BUILD-MANIFEST-core-daede.txt
+          test -f "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-core-sysupgrade.bin"
+          test -f "JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-core-daede-sysupgrade.bin"
           cat sha256sums-* > sha256sums
+          sha256sum -c sha256sums
 
           release_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -787,38 +783,22 @@ jobs:
           source_commit="$(awk -F': ' '/^Source commit:/{print $2; exit}' BUILD-MANIFEST-*.txt)"
           build_version="$(awk -F': ' '/^Build version:/{print $2; exit}' BUILD-MANIFEST-*.txt)"
 
-          link_or_dash() {
-            file="$1"
-            if [ -f "$file" ]; then
-              printf '[%s](%s/%s)' "$2" "$release_url" "$file"
-            else
-              printf '%s' '-'
-            fi
-          }
-
           {
             echo "## 下载"
             echo
-            echo "| 变体 | 适用场景 | sysupgrade | factory |"
-            echo "|:---|:---|:---|:---|"
-            for variant in core core-daede ultimate; do
+            echo "| 变体 | 适用场景 | sysupgrade |"
+            echo "|:---|:---|:---|"
+            for variant in core core-daede; do
               case "$variant" in
                 core) desc="日用主路由" ;;
                 core-daede) desc="dae/daed eBPF 实验版" ;;
-                ultimate) desc="存储下载增强版" ;;
               esac
               sysupgrade="JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${variant}-sysupgrade.bin"
-              factory="JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-${variant}-factory.bin"
-              if [ -f "$sysupgrade" ] || [ -f "$factory" ]; then
-                printf '| `%s` | %s | %s | %s |\n' \
-                  "$variant" \
-                  "$desc" \
-                  "$(link_or_dash "$sysupgrade" sysupgrade)" \
-                  "$(link_or_dash "$factory" factory)"
-              fi
+              printf '| `%s` | %s | [%s](%s/%s) |\n' \
+                "$variant" "$desc" "sysupgrade" "$release_url" "$sysupgrade"
             done
             echo
-            echo "> 日常升级请使用 sysupgrade；factory 镜像不要通过 pepe2k U-Boot Web UI 刷入。"
+            echo "> 本项目只发布经过 OpenWrt/LiBwrt sysupgrade 路径使用的 sysupgrade 镜像。"
             echo
             echo "## 构建信息"
             echo
@@ -826,10 +806,7 @@ jobs:
             echo "- 内核: ${kernel:-unknown}"
             echo "- 固件版本: ${build_version:-unknown}"
             echo "- 上游: LiBwrt main-nss @ ${source_commit:-unknown}"
-            echo "- 触发选择: ${REQUESTED_VARIANT:-unknown}"
             echo "- 构建记录: ${run_url}"
-            echo
-            echo "单变体构建也会更新本 Release；同名固件资产会被最新构建自动覆盖。"
             echo
             echo "校验和见 \`sha256sums\`，完整追溯信息见 \`BUILD-MANIFEST-*.txt\` 和 \`build-info-*.tar.gz\`。"
           } > RELEASE.md
@@ -840,9 +817,18 @@ jobs:
           name: JDC AX1800 Pro LiBwrt · ${{ needs.metadata.outputs.file_date }}
           tag: ${{ needs.metadata.outputs.release_tag }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: firmware/*.bin,firmware/sha256sums,firmware/BUILD-MANIFEST-*.txt,firmware/build-info-*.tar.gz
+          artifacts: firmware/*-sysupgrade.bin,firmware/sha256sums,firmware/BUILD-MANIFEST-*.txt,firmware/build-info-*.tar.gz
           bodyFile: firmware/RELEASE.md
           commit: ${{ github.sha }}
           artifactErrorsFailBuild: true
           allowUpdates: true
           replacesArtifacts: true
+
+      - name: Align release tag with builder commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" \
+            -f sha="${GITHUB_SHA}" \
+            -F force=true
