@@ -989,6 +989,11 @@ if [ -f "$JDC_IMAGE_MK" ]; then
       compat_seen = 1
     }
     in_device { gsub(/ipq-wifi-jdcloud_re-ss-01/, ""); sub(/[[:space:]]+$/, "") }
+    in_device && /^[[:space:]]*DEVICE_PACKAGES :=/ {
+      if ($0 !~ /(^|[[:space:]])-luci([[:space:]]|$)/) {
+        $0 = $0 " -luci"
+      }
+    }
     in_device && /^[[:space:]]*IMAGE\/factory\.bin :=/ {
       next
     }
@@ -1012,9 +1017,10 @@ if [ -f "$JDC_IMAGE_MK" ]; then
     in_device && /KERNEL_SIZE := 12288k/ { kernel_ok = 1 }
     in_device && /SUPPORTED_DEVICES \+= jdcloud,ax1800-pro/ { compat_ok = 1 }
     in_device && /ipq-wifi-jdcloud_re-ss-01/ { wifi_package_present = 1 }
+    in_device && /(^|[[:space:]])-luci([[:space:]]|$)/ { luci_collection_excluded = 1 }
     in_device && /IMAGE\/factory\.bin :=/ { factory_present = 1 }
     /^endef$/ && in_device { in_device = 0 }
-    END { exit !(kernel_ok && compat_ok && !wifi_package_present && !factory_present) }
+    END { exit !(kernel_ok && compat_ok && luci_collection_excluded && !wifi_package_present && !factory_present) }
   ' "$JDC_IMAGE_MK" || {
     echo "ERROR: JDCloud AX1800 Pro image recipe verification failed" >&2
     exit 1
