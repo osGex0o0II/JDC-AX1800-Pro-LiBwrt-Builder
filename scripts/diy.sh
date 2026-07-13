@@ -5,6 +5,7 @@ set -euo pipefail
 # Usage: bash diy.sh <variant>
 #   variant: core | core-daede
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VARIANT="${1:-core}"
 case "$VARIANT" in
   core|core-daede) ;;
@@ -164,7 +165,6 @@ dts_node_is_disabled() {
 patch_wired_only_dts() {
   local dts="target/linux/qualcommax/dts/ipq6000-re-ss-01.dts"
   local target_mk="target/linux/qualcommax/Makefile"
-  local nss_patch
 
   [ -f "$dts" ] || {
     echo "ERROR: JDCloud RE-SS-01 DTS not found" >&2
@@ -201,11 +201,7 @@ EOF
     echo "ERROR: JDCloud DTS no longer includes the NSS device tree" >&2
     exit 1
   }
-  nss_patch="$(grep -R -l -m1 'nss_region: memory@40000000' target/linux/qualcommax/patches-* 2>/dev/null | head -n 1 || true)"
-  [ -n "$nss_patch" ] && grep -Fq 'reg = <0x0 0x40000000 0x0 0x01000000>;' "$nss_patch" || {
-    echo "ERROR: independent 16 MiB NSS reserved-memory region is missing" >&2
-    exit 1
-  }
+  "$SCRIPT_DIR/verify-ipq6018-nss-region.sh" "target/linux/qualcommax/patches-${KERNEL_VER}"
 }
 
 patch_sing_box_latest_stable() {

@@ -266,7 +266,6 @@ jobs:
             dts="target/linux/qualcommax/dts/ipq6000-re-ss-01.dts"
             target_mk="target/linux/qualcommax/Makefile"
             kernel_config="target/linux/qualcommax/config-${VERSION_KERNEL}"
-            nss_patch="$(grep -R -l -m1 'nss_region: memory@40000000' target/linux/qualcommax/patches-* 2>/dev/null | head -n 1 || true)"
             awk '
               /^define Device\/jdcloud_re-ss-01$/ { in_device = 1 }
               in_device && /KERNEL_SIZE := 12288k/ { kernel_ok = 1 }
@@ -300,10 +299,7 @@ jobs:
               echo "::error::JDCloud DTS no longer includes the NSS device tree" >&2
               exit 1
             }
-            [ -n "$nss_patch" ] && grep -Fq 'reg = <0x0 0x40000000 0x0 0x01000000>;' "$nss_patch" || {
-              echo "::error::Independent 16 MiB NSS reserved-memory region is missing" >&2
-              exit 1
-            }
+            "$GITHUB_WORKSPACE/scripts/verify-ipq6018-nss-region.sh" "target/linux/qualcommax/patches-${VERSION_KERNEL}"
             grep -qx '# CONFIG_QCOM_Q6V5_WCSS is not set' "$kernel_config" || {
               echo "::error::Q6V5 WCSS remoteproc remains enabled in the target kernel" >&2
               exit 1
