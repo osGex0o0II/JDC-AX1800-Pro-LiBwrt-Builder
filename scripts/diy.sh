@@ -162,7 +162,7 @@ dts_node_is_disabled() {
 }
 
 patch_wired_only_dts() {
-  local dts="target/linux/qualcommax/dts/ipq6000-re-ss-01.dts"
+  local dts="target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/ipq6000-re-ss-01.dts"
   local target_mk="target/linux/qualcommax/Makefile"
 
   [ -f "$dts" ] || {
