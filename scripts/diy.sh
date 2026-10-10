@@ -45,53 +45,6 @@ latest_semver_git_tag() {
     awk 'END { print $4 }'
 }
 
-latest_stable_github_release_tag() {
-  local repo="$1"
-  local tag_pattern="$2"
-  local payload
-  local -a curl_args=(
-    --retry 5
-    --retry-delay 2
-    --retry-all-errors
-    -fsSL
-    -H "Accept: application/vnd.github+json"
-  )
-
-  command -v python3 >/dev/null 2>&1 || {
-    echo "ERROR: python3 is required to validate GitHub Release metadata" >&2
-    return 1
-  }
-  if [ -n "${GITHUB_TOKEN:-}" ]; then
-    curl_args+=( -H "Authorization: Bearer ${GITHUB_TOKEN}" )
-  fi
-  payload="$(curl "${curl_args[@]}" "https://api.github.com/repos/${repo}/releases/latest")" || {
-    echo "ERROR: failed to query latest stable GitHub Release for ${repo}" >&2
-    return 1
-  }
-
-  printf '%s' "$payload" | python3 -c '
-import json
-import re
-import sys
-
-pattern = sys.argv[1]
-release = json.load(sys.stdin)
-tag = release.get("tag_name", "")
-if release.get("draft") or release.get("prerelease") or re.fullmatch(pattern, tag) is None:
-    raise SystemExit(1)
-print(tag)
-' "$tag_pattern" || {
-    echo "ERROR: latest GitHub Release for ${repo} is not an accepted stable tag" >&2
-    return 1
-  }
-}
-
-makefile_value() {
-  local path="$1"
-  local key="$2"
-  awk -F':=' -v key="$key" '$1 == key { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit }' "$path"
-}
-
 append_github_env() {
   [ -n "${GITHUB_ENV:-}" ] || return 0
   printf '%s\n' "$@" >> "$GITHUB_ENV"
