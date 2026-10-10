@@ -53,12 +53,6 @@ jobs:
       FILE_DATE: ${{ needs.metadata.outputs.file_date }}
 
     steps:
-      - name: Validate scripts and NSS verifier tests
-        run: |
-          bash -n scripts/diy.sh scripts/update-feeds.sh scripts/verify-ipq6018-nss-region.sh
-          sh -n files/usr/sbin/jdc-healthcheck
-          bash tests/test-verify-ipq6018-nss-region.sh
-
       - name: Check server
         run: |
           echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
@@ -107,6 +101,12 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
+
+      - name: Validate scripts and NSS verifier tests
+        run: |
+          bash -n scripts/diy.sh scripts/update-feeds.sh scripts/verify-ipq6018-nss-region.sh
+          sh -n files/usr/sbin/jdc-healthcheck
+          bash tests/test-verify-ipq6018-nss-region.sh
 
       - name: Clone source
         id: clone_source
