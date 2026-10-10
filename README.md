@@ -14,7 +14,7 @@
 - 有线主路由取向，移除设备 Wi-Fi 数据、ath11k/mac80211/hostapd 和 NSS Wi-Fi mesh 包，并释放 WCSS/Q6 保留内存
 - BBR + fq，内建 `sch_fq`，避免启动早期 sysctl 失败
 - Aurora LuCI 主题，构建时自动选择上游最新稳定 tag
-- 默认包含 HomeProxy/sing-box；HomeProxy 构建时优先选择上游最新稳定 tag，暂无稳定 tag 时跟随仓库默认分支；sing-box 自动选择官方最新稳定版
+- 默认包含 HomeProxy/sing-box；sing-box 1.14 与 HomeProxy 的启动兼容性仍需实测；HomeProxy 构建时优先选择上游最新稳定 tag，暂无稳定 tag 时跟随仓库默认分支；sing-box 自动选择官方最新稳定版
 - NSS firmware 构建时从上游 nss-packages feed 自动选择当前可用最高版本
 - 默认包含 cpufreq、Samba、ZeroTier、ECM、DiskMan 和挂载支持
 - GitHub Actions 自动编译、上传 artifact，并按日期合并发布 Release
@@ -36,13 +36,13 @@
 
 出于攻击面和日常需求权衡，`core` 基底不再内置 QuickFile-Go 或其它 LuCI 文件管理器；需要文件操作时建议通过 SSH/SFTP 完成。
 
-## 版本策略与核验快照
+## 版本策略与核验快照（历史记录）
 
 构建不会绕过 LiBwrt feed 强行替换其中每个软件包。OpenWrt 内核、工具链和普通软件包由所选 LiBwrt 源码的 `feeds.conf.default` 统一解析，以保持 ABI 和补丁兼容；`make download` 仍会校验各 recipe 的源码哈希。以下组件由本项目额外解析或固定。
 
-| 组件 | 选择策略 | 2026-07-12 核验结果 |
+| 组件 | 选择策略 | 2026-07-12 历史核验结果 |
 |:---|:---|:---|
-| LiBwrt | 项目基线为滚动的 `25.12-nss`；正式触发时使用完整 SHA 锁定 | `fff6bde9652cd23133b5dfe0db2a4e6ca3eeb49f` |
+| LiBwrt | 项目基线为滚动的 `25.12-nss`；正式触发时使用完整 SHA 锁定 | `fff6bde9652cd23133b5dfe0db2a4e6ca3eeb49f`（历史快照；2026-10-10 上游 HEAD `3a3d0b08595530070ad9cd8a20c0ae4ea3e77f70`） |
 | LiBwrt feed 软件包 | 更新并安装锁定源码所声明的全部 feeds；版本以最终 `.config`、manifest 和 buildinfo 为准 | 当前 `25.12-nss` feed 快照 |
 | NSS firmware | 从 `nss_packages` feed 选择数值最高的可用版本 | `12.5`（Release 210；构建时再次解析并写入 manifest） |
 | sing-box | 只接受严格 `vMAJOR.MINOR.PATCH`，排除 alpha/beta/rc | `v1.13.14` (`25a600db...`) |
@@ -58,6 +58,7 @@
 1. Fork 本仓库。
 2. 进入 **Actions**，启用 workflow。
 3. 打开 **Build JDC AX1800 Pro LiBwrt**。
+4. 在 `main` 分支手动点击 **Run workflow**；测试 PR 自动编译但不发布 Release。
 5. 可选：在 `repo_commit` 填入 LiBwrt 上游完整的 40 位 commit SHA，用于固定源码版本。
 6. 编译完成后从 workflow artifact 或 Releases 下载固件。
 
@@ -65,21 +66,24 @@ Actions 会在编译前校验目标设备和关键软件包，避免配置叠加
 
 ## 本地编译
 
+需要将本项目与上游源码克隆到同一目录下，再从 `openwrt` 目录执行。
+
 ```bash
+git clone https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder.git builder
 git clone --depth 1 -b 25.12-nss https://github.com/LiBwrt/LibWrt.git openwrt
 cd openwrt
 
-cp ../configs/core.config .config
+cp ../builder/configs/core.config .config
 
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
 mkdir -p files
-cp -a ../files/. files/
+cp -a ../builder/files/. files/
 
-cp -a ../files-homeproxy/. files/
+cp -a ../builder/files-homeproxy/. files/
 
-OPENWRT_PATH="$PWD" bash ../scripts/diy.sh core
+OPENWRT_PATH="$PWD" bash ../builder/scripts/diy.sh core
 make defconfig
 make download -j"$(nproc)"
 make -j"$(nproc)"
