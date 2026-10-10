@@ -21,7 +21,7 @@
 - Release 附带精简下载表、manifest、固件 SHA256、上游源码信息和最终配置摘要
 - 默认关闭 `ttyd`、SSH 密码认证、packet steering 和 flow offloading，避免暴露不必要入口或与 NSS 路径冲突
 
-## 固件变体
+## 固件配置
 
 | 变体 | 定位 | 主要内容 |
 |:---|:---|:---|
@@ -182,7 +182,6 @@ net.ipv4.tcp_congestion_control=bbr
 - dnsmasq 进程状态
 - 系统解析路径
 - HomeProxy/sing-box 状态
-- daed/dae 状态
 - 可用内存
 
 
@@ -191,10 +190,10 @@ net.ipv4.tcp_congestion_control=bbr
 ```text
 .
 ├── .github/workflows/
-│   └── build.yml          # 编译与原子发布两个变体
+│   └── build.yml          # 仅编译 core；main 分支手动发布
 ├── configs/
-│   ├── core.config        # 基础配置
-├── files/                 # 所有变体共用 overlay
+│   └── core.config        # 唯一固件配置
+├── files/                 # 通用系统配置 overlay
 ├── files-homeproxy/       # HomeProxy/sing-box 默认项
 ├── scripts/
 │   ├── diy.sh             # 编译前自定义
