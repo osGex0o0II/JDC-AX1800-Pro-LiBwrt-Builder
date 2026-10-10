@@ -69,14 +69,7 @@ Actions 会在编译前校验目标设备和关键软件包，避免配置叠加
 git clone --depth 1 -b 25.12-nss https://github.com/LiBwrt/LibWrt.git openwrt
 cd openwrt
 
-VARIANT=core
-
-case "$VARIANT" in
-  core)
-    cp ../configs/core.config .config
-    ;;
-    ;;
-esac
+cp ../configs/core.config .config
 
 ./scripts/feeds update -a
 ./scripts/feeds install -a
@@ -84,14 +77,9 @@ esac
 mkdir -p files
 cp -a ../files/. files/
 
-case "$VARIANT" in
-  core)
-    cp -a ../files-homeproxy/. files/
-    ;;
-    ;;
-esac
+cp -a ../files-homeproxy/. files/
 
-OPENWRT_PATH="$PWD" bash ../scripts/diy.sh "$VARIANT"
+OPENWRT_PATH="$PWD" bash ../scripts/diy.sh core
 make defconfig
 make download -j"$(nproc)"
 make -j"$(nproc)"
