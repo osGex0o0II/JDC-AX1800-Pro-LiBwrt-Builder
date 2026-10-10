@@ -60,17 +60,6 @@ jobs:
           free -h
           df -hT
 
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          persist-credentials: false
-
-      - name: Validate scripts and NSS verifier tests
-        run: |
-          bash -n scripts/diy.sh scripts/update-feeds.sh scripts/verify-ipq6018-nss-region.sh
-          sh -n files/usr/sbin/jdc-healthcheck
-          bash tests/test-verify-ipq6018-nss-region.sh
-
       - name: Initialize environment
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -107,6 +96,17 @@ jobs:
           remove-haskell: true
           remove-codeql: true
           remove-docker-images: true
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+
+      - name: Validate scripts and NSS verifier tests
+        run: |
+          bash -n scripts/diy.sh scripts/update-feeds.sh scripts/verify-ipq6018-nss-region.sh
+          sh -n files/usr/sbin/jdc-healthcheck
+          bash tests/test-verify-ipq6018-nss-region.sh
 
       - name: Clone source
         id: clone_source
