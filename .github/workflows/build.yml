@@ -2,6 +2,8 @@ name: Build JDC AX1800 Pro LiBwrt
 run-name: core · JDC AX1800 Pro · LiBwrt 25.12-nss
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       repo_commit:
@@ -51,6 +53,12 @@ jobs:
       FILE_DATE: ${{ needs.metadata.outputs.file_date }}
 
     steps:
+      - name: Validate scripts and NSS verifier tests
+        run: |
+          bash -n scripts/diy.sh scripts/update-feeds.sh scripts/verify-ipq6018-nss-region.sh
+          sh -n files/usr/sbin/jdc-healthcheck
+          bash tests/test-verify-ipq6018-nss-region.sh
+
       - name: Check server
         run: |
           echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
@@ -242,7 +250,7 @@ jobs:
           }
           require_recipe_patch() {
             image_mk="target/linux/qualcommax/image/ipq60xx.mk"
-            dts="target/linux/qualcommax/dts/ipq6000-re-ss-01.dts"
+            dts="target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/ipq6000-re-ss-01.dts"
             target_mk="target/linux/qualcommax/Makefile"
             kernel_config="target/linux/qualcommax/config-${VERSION_KERNEL}"
             awk '
@@ -610,7 +618,7 @@ jobs:
     needs:
       - metadata
       - build
-    if: needs.build.result == 'success'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && needs.build.result == 'success'
     permissions:
       contents: write
     env:
