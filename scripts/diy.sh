@@ -409,6 +409,41 @@ patch_homeproxy_sing_box_compat() {
         perl -0pi -e "s~(\n\toutbounds:\s*\[)~,\n\thttp_clients: [\n\t\t{\n\t\t\ttag: 'direct-http',\n\t\t\tdetour: 'direct-out'\n\t\t}\n\t],\${1}~" "$generator"
       fi
     fi
+    # HomeProxy upstream PR #673: compatibility with sing-box 1.14.
+    # Patch only the outdated fields and retain other HomeProxy settings.
+    python3 - "$generator" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text()
+source = re.sub(
+    r"(?m)^[ \t]*(?:disable_expire: strToBool\(dns_disable_cache_expire\)|independent_cache: strToBool\(dns_independent_cache\)),?\n",
+    "",
+    source,
+)
+source = re.sub(
+    r"(config\.route\.default_domain_resolver = \{\n)[ \t]*action: '(?:route|resolve)',\n",
+    r"\1",
+    source,
+)
+source = source.replace(
+    "auto_detect_interface: isEmpty(default_interface) ? true : null,",
+    "auto_detect_interface: (isEmpty(default_interface) && isEmpty(self_mark)) ? true : null,"
+)
+source = source.replace(
+    "inbound: ['mixed-in', 'redirect-in', 'tproxy-in', 'tun-in'],\n\t\t\taction: 'sniff'\n",
+    "inbound: ['mixed-in', 'redirect-in', 'tproxy-in', 'tun-in'],\n\t\t\taction: 'sniff',\n\t\t\ttimeout: '300ms'\n",
+)
+if re.search(r"config\.route\.default_domain_resolver = \{\n[ \t]*action:", source):
+    sys.exit("ERROR: HomeProxy default domain resolver still has a legacy action")
+if "auto_detect_interface: (isEmpty(default_interface) && isEmpty(self_mark)) ? true : null," not in source:
+    sys.exit("ERROR: HomeProxy automatic interface selection was not guarded for VPN routes")
+if re.search(r"^[ \t]*(?:disable_expire|independent_cache):", source, re.M):
+    sys.exit("ERROR: HomeProxy still contains deprecated DNS cache fields")
+path.write_text(source)
+PY
     sed -i \
       -e "s/download_detour: 'main-out'/http_client: 'direct-http'/g" \
       -e "s/download_detour: 'direct-out'/http_client: 'direct-http'/g" \
