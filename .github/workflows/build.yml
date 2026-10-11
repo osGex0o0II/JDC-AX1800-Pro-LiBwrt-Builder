@@ -528,9 +528,6 @@ jobs:
           require_config CONFIG_PACKAGE_kmod-nft-socket
           require_config CONFIG_PACKAGE_kmod-nft-tproxy
           forbid_config CONFIG_PACKAGE_dockerd
-          forbid_config CONFIG_PACKAGE_dae
-          forbid_config CONFIG_PACKAGE_daed
-          forbid_config CONFIG_PACKAGE_luci-app-daede
           make download -j"$(nproc)"
           find dl -maxdepth 1 -type f -size -1024c -print -delete
 
@@ -660,10 +657,8 @@ jobs:
           {
             echo "## 下载"
             echo
-            echo "| 变体 | 适用场景 | sysupgrade |"
-            echo "|:---|:---|:---|"
             sysupgrade="JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-core-sysupgrade.bin"
-            printf '| `%s` | %s | [%s](%s/%s) |\n' "core" "日用主路由" "sysupgrade" "$release_url" "$sysupgrade"
+            printf -- '- **core 固件（日用主路由）**：[下载 sysupgrade](%s/%s)\n' "$release_url" "$sysupgrade"
             echo
             echo "> 本项目只发布经过 OpenWrt/LiBwrt sysupgrade 路径使用的 sysupgrade 镜像。"
             echo
