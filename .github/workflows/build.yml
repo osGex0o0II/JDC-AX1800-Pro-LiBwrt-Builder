@@ -107,6 +107,7 @@ jobs:
           bash -n scripts/diy.sh scripts/update-feeds.sh scripts/verify-ipq6018-nss-region.sh
           sh -n files/usr/sbin/jdc-healthcheck
           bash tests/test-verify-ipq6018-nss-region.sh
+          python3 tests/test-remove-default-luci.py
 
       - name: Clone source
         id: clone_source
@@ -469,6 +470,7 @@ jobs:
           forbid_config CONFIG_PACKAGE_hostapd-common
           forbid_config CONFIG_PACKAGE_ipq-wifi-jdcloud_re-ss-01
           forbid_config CONFIG_PACKAGE_kmod-qca-nss-drv-wifi-meshmgr
+          forbid_config CONFIG_PACKAGE_luci
           forbid_config CONFIG_PACKAGE_luci-app-package-manager
           require_recipe_patch
           test -f feeds/luci/applications/luci-app-homeproxy/Makefile || {
