@@ -425,6 +425,14 @@ jobs:
           require_config CONFIG_PACKAGE_kmod-qca-nss-drv-qdisc
           require_config CONFIG_PACKAGE_kmod-qca-mcs
           require_config CONFIG_PACKAGE_ip-full
+          # Removing the luci metapackage must not remove administration pages.
+          require_config CONFIG_PACKAGE_luci-base
+          require_config CONFIG_PACKAGE_luci-mod-admin-full
+          require_config CONFIG_PACKAGE_luci-mod-status
+          require_config CONFIG_PACKAGE_luci-mod-system
+          require_config CONFIG_PACKAGE_luci-mod-network
+          require_config CONFIG_PACKAGE_luci-proto-ppp
+          require_config CONFIG_PACKAGE_rpcd-mod-rrdns
           require_config CONFIG_PACKAGE_luci-app-samba4
           require_config CONFIG_PACKAGE_samba4-server
           require_config CONFIG_PACKAGE_luci-app-zerotier
