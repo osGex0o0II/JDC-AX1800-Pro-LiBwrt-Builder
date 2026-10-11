@@ -50,14 +50,14 @@ class DefaultLuciTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             target = Path(d) / "qualcommax.Makefile"
             global_target = Path(d) / "target.mk"
-            target.write_text("DEFAULT_PACKAGES += autocore luci luci-app-cpufreq\\n")
+            target.write_text("DEFAULT_PACKAGES += autocore luci luci-app-cpufreq\n")
             global_target.write_text(
-                "DEFAULT_PACKAGES.tweak:=\\\\\\n"
-                "\\tblock-mount \\\\\\n"
-                "\\tdefault-settings-chn \\\\\\n"
-                "\\tkmod-nf-nathelper \\\\\\n"
-                "\\tluci\\n"
-                "\\nDEFAULT_PACKAGES += $(DEFAULT_PACKAGES.tweak)\\n"
+                "DEFAULT_PACKAGES.tweak:=\\\n"
+                "\tblock-mount \\\n"
+                "\tdefault-settings-chn \\\n"
+                "\tkmod-nf-nathelper \\\n"
+                "\tluci\n"
+                "\nDEFAULT_PACKAGES += $(DEFAULT_PACKAGES.tweak)\n"
             )
             subprocess.run(
                 [sys.executable, str(SCRIPT), str(target), str(global_target)],
@@ -66,10 +66,9 @@ class DefaultLuciTests(unittest.TestCase):
             target_text = target.read_text()
             global_text = global_target.read_text()
             self.assertNotIn(" autocore luci ", target_text)
-            self.assertNotIn("\\tluci\\n", global_text)
+            self.assertNotIn("\tluci\n", global_text)
             self.assertIn("luci-app-cpufreq", target_text)
             self.assertIn("kmod-nf-nathelper", global_text)
-            # Both transformations are idempotent.
             subprocess.run(
                 [sys.executable, str(SCRIPT), str(target), str(global_target)],
                 check=True,
