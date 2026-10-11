@@ -23,16 +23,11 @@
 
 ## 固件配置
 
-| 变体 | 定位 | 主要内容 |
-|:---|:---|:---|
-| `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、DiskMan、挂载、USB 存储、CoreMark |
-
-
+项目只构建和发布 `core` 固件，面向日常有线主路由使用，包含 NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、DiskMan、挂载、USB 存储和 CoreMark。
 
 上游 LiBwrt `25.12-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。实机 QWRT/iStoreOS 分区布局使用 eMMC GPT，board id 为 `jdcloud,ax1800-pro`，HLOS/HLOS_1 为 12 MiB；构建脚本会在编译阶段把上游 recipe 的 kernel slot 从 6 MiB 调整到 12 MiB，并加入该兼容 ID。
 
-有线构建同时禁用 Wi-Fi、WCSS remoteproc 和 Q6 相关 reserved-memory 节点。Linux 基线中的 `q6_region` 长度为 `0x05500000`，但该设备使用的 512 MiB DTS 将其覆盖为 `0x03700000`，实际 carveout 是 55 MiB；另有 1 MiB 的 Q6 ETR 与 1 MiB 的 M3 dump 区域。这 57 MiB 不再因已移除的无线功能占用；NSS 自身独立的 16 MiB `nss_region` 继续保留。
-
+固件禁用 Wi-Fi、WCSS remoteproc 和 Q6 相关 reserved-memory 节点。Linux 基线中的 `q6_region` 长度为 `0x05500000`，但该设备使用的 512 MiB DTS 将其覆盖为 `0x03700000`，实际 carveout 是 55 MiB；另有 1 MiB 的 Q6 ETR 与 1 MiB 的 M3 dump 区域。这 57 MiB 不再因已移除的无线功能占用；NSS 自身独立的 16 MiB `nss_region` 继续保留。
 
 出于攻击面和日常需求权衡，`core` 基底不再内置 QuickFile-Go 或其它 LuCI 文件管理器；需要文件操作时建议通过 SSH/SFTP 完成。
 
@@ -207,7 +202,7 @@ net.ipv4.tcp_congestion_control=bbr
 
 ## 自定义建议
 
-- 修改包选择时优先编辑 `configs/*.config`，不要直接改 Actions 里的包列表。
+- 修改包选择时优先编辑 `configs/core.config`，不要直接改 Actions 里的包列表。
 - 更新第三方 GitHub Actions 时，建议继续固定到具体 commit SHA。
 
 ## 致谢
