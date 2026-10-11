@@ -131,14 +131,24 @@ patch_wired_only_dts() {
   # DEFAULT_PACKAGES; core.config explicitly includes the needed LuCI parts.
   python3 "$SCRIPT_DIR/remove-default-luci.py" "$target_mk" "include/target.mk"
 
-  # default-settings-chn -> default-settings -> luci collection also pulls
-  # luci-app-package-manager. Its actual UCI defaults only need luci-base.
+  # default-settings-chn -> default-settings -> luci collection would also
+  # force luci-app-package-manager. Only luci-base is required by its UCI scripts.
   local default_settings_mk="package/emortal/default-settings/Makefile"
   if [ ! -f "$default_settings_mk" ]; then
     echo "ERROR: expected default-settings recipe is missing" >&2
     exit 1
   fi
-  if [ "$(grep -Ec '^[[:space:]]*DEPENDS:=[[:space:]]*\+luci[[:space:]]*
+  if ! grep -Fxq '  DEPENDS:=+luci' "$default_settings_mk"; then
+    echo "ERROR: upstream default-settings LuCI dependency changed; review before building" >&2
+    exit 1
+  fi
+  sed -i 's/DEPENDS:=+luci/DEPENDS:=+luci-base/' "$default_settings_mk"
+  grep -Fxq '  DEPENDS:=+luci-base' "$default_settings_mk" || {
+    echo "ERROR: unable to retain minimal default-settings LuCI dependency" >&2
+    exit 1
+  }
+  echo "Retained default-settings-chn without pulling the luci collection"
+
   sed -i '/^[[:space:]]*kmod-qca-nss-drv-vxlanmgr \\/s/[[:space:]]*\\$/ /' "$target_mk"
   sed -i '/^[[:space:]]*kmod-qca-nss-drv-wifi-meshmgr[[:space:]]*$/d' "$target_mk"
 
