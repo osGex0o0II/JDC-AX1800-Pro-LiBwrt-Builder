@@ -127,6 +127,10 @@ patch_wired_only_dts() {
     exit 1
   }
 
+  # Avoid the LuCI collection pulling luci-app-package-manager back in via
+  # DEFAULT_PACKAGES; core.config explicitly includes the needed LuCI parts.
+  python3 "$SCRIPT_DIR/remove-default-luci.py" "$target_mk"
+
   sed -i '/^[[:space:]]*kmod-qca-nss-drv-vxlanmgr \\/s/[[:space:]]*\\$/ /' "$target_mk"
   sed -i '/^[[:space:]]*kmod-qca-nss-drv-wifi-meshmgr[[:space:]]*$/d' "$target_mk"
 
