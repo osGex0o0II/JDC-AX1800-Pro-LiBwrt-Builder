@@ -649,28 +649,21 @@ jobs:
           sha256sum -c sha256sums
 
           release_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
-          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          kernel="$(awk -F': ' '/^Kernel:/{print $2; exit}' BUILD-MANIFEST-*.txt)"
-          source_commit="$(awk -F': ' '/^Source commit:/{print $2; exit}' BUILD-MANIFEST-*.txt)"
-          build_version="$(awk -F': ' '/^Build version:/{print $2; exit}' BUILD-MANIFEST-*.txt)"
+          build_version="$(awk -F': ' '/^Build version:/{print $2; exit}' BUILD-MANIFEST-core.txt)"
+          sysupgrade="JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-core-sysupgrade.bin"
 
           {
-            echo "## 下载"
+            echo "## 固件下载"
             echo
-            sysupgrade="JDC-AX1800-Pro-LiBwrt-${FILE_DATE}-core-sysupgrade.bin"
-            printf -- '- **core 固件（日用主路由）**：[下载 sysupgrade](%s/%s)\n' "$release_url" "$sysupgrade"
+            echo "**JDC AX1800 Pro · core（纯有线，无 Wi-Fi）**"
             echo
-            echo "> 本项目只发布经过 OpenWrt/LiBwrt sysupgrade 路径使用的 sysupgrade 镜像。"
+            printf '[下载固件（sysupgrade）](%s/%s)\n' "$release_url" "$sysupgrade"
             echo
-            echo "## 构建信息"
+            echo "> 仅适用于兼容 sysupgrade 的设备，不支持原厂首次刷入。升级前请备份并确认分区与恢复手段；校验失败不要强刷。"
             echo
-            echo "- 日期: ${FILE_DATE}"
-            echo "- 内核: ${kernel:-unknown}"
-            echo "- 固件版本: ${build_version:-unknown}"
-            echo "- 上游: LiBwrt 25.12-nss @ ${source_commit:-unknown}"
-            echo "- 构建记录: ${run_url}"
-            echo
-            echo "校验和见 \`sha256sums\`，完整追溯信息见 \`BUILD-MANIFEST-*.txt\` 和 \`build-info-*.tar.gz\`。"
+            echo "- 版本：${build_version:-unknown}"
+            echo "- [SHA256 校验和](${release_url}/sha256sums) · [升级指南](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/docs/upgrade.md)"
+            echo "- 详细构建信息：见附件 \`BUILD-MANIFEST-core.txt\`。"
           } > RELEASE.md
 
       - name: Publish release
