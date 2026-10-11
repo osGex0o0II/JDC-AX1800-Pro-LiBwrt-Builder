@@ -46,6 +46,35 @@ class DefaultLuciTests(unittest.TestCase):
         self.assertIn("OTHER_PACKAGE := luci", patched)
         self.assertNotIn("DEFAULT_PACKAGES += luci ", patched)
 
+    def test_global_tweak_defaults_and_multifile_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / "qualcommax.Makefile"
+            global_target = Path(d) / "target.mk"
+            target.write_text("DEFAULT_PACKAGES += autocore luci luci-app-cpufreq\\n")
+            global_target.write_text(
+                "DEFAULT_PACKAGES.tweak:=\\\\\\n"
+                "\\tblock-mount \\\\\\n"
+                "\\tdefault-settings-chn \\\\\\n"
+                "\\tkmod-nf-nathelper \\\\\\n"
+                "\\tluci\\n"
+                "\\nDEFAULT_PACKAGES += $(DEFAULT_PACKAGES.tweak)\\n"
+            )
+            subprocess.run(
+                [sys.executable, str(SCRIPT), str(target), str(global_target)],
+                check=True,
+            )
+            target_text = target.read_text()
+            global_text = global_target.read_text()
+            self.assertNotIn(" autocore luci ", target_text)
+            self.assertNotIn("\\tluci\\n", global_text)
+            self.assertIn("luci-app-cpufreq", target_text)
+            self.assertIn("kmod-nf-nathelper", global_text)
+            # Both transformations are idempotent.
+            subprocess.run(
+                [sys.executable, str(SCRIPT), str(target), str(global_target)],
+                check=True,
+            )
+
     def test_rejects_missing_default_packages_section(self) -> None:
         with self.assertRaisesRegex(ValueError, "No DEFAULT_PACKAGES"):
             module.remove_default_luci("OTHER_PACKAGES += luci\n")
