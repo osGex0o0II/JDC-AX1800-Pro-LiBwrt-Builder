@@ -1,6 +1,6 @@
 # JDC AX1800 Pro LiBwrt Builder
 
-为 **JDC AX1800 Pro / 京东云无线宝亚瑟** 编译的 LiBwrt NSS 固件，基于 [LiBwrt/openwrt-6.x](https://github.com/LiBwrt/openwrt-6.x) `main-nss` 分支。
+为 **JDC AX1800 Pro / 京东云无线宝亚瑟** 编译的 LiBwrt NSS 固件，基于 [LiBwrt/LibWrt](https://github.com/LiBwrt/LibWrt) `25.12-nss` 分支。
 
 [![Build](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/actions/workflows/build.yml/badge.svg)](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/actions/workflows/build.yml)
 [![License](https://img.shields.io/github/license/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder)](LICENSE)
@@ -14,58 +14,46 @@
 - 有线主路由取向，移除设备 Wi-Fi 数据、ath11k/mac80211/hostapd 和 NSS Wi-Fi mesh 包，并释放 WCSS/Q6 保留内存
 - BBR + fq，内建 `sch_fq`，避免启动早期 sysctl 失败
 - Aurora LuCI 主题，构建时自动选择上游最新稳定 tag
-- 默认包含 HomeProxy/sing-box；HomeProxy 构建时优先选择上游最新稳定 tag，暂无稳定 tag 时跟随仓库默认分支；sing-box 自动选择官方最新稳定版
+- 默认包含 HomeProxy/sing-box；sing-box 1.14 与 HomeProxy 的启动兼容性仍需实测；HomeProxy 构建时优先选择上游最新稳定 tag，暂无稳定 tag 时跟随仓库默认分支；sing-box 自动选择官方最新稳定版
 - NSS firmware 构建时从上游 nss-packages feed 自动选择当前可用最高版本
 - 默认包含 cpufreq、Samba、ZeroTier、ECM、DiskMan 和挂载支持
-- 提供 `core-daede` 实验变体，用于评估 dae/daed eBPF 透明代理，包源构建时自动选择 `kenzok8/openwrt-daede` 最新日期 tag，并在发布前核验其 Release 状态
 - GitHub Actions 自动编译、上传 artifact，并按日期合并发布 Release
 - Release 附带精简下载表、manifest、固件 SHA256、上游源码信息和最终配置摘要
 - 默认关闭 `ttyd`、SSH 密码认证、packet steering 和 flow offloading，避免暴露不必要入口或与 NSS 路径冲突
 
-## 固件变体
+## 固件配置
 
-| 变体 | 定位 | 主要内容 |
-|:---|:---|:---|
-| `core` | 日用主路由 | NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、DiskMan、挂载、USB 存储、CoreMark |
-| `core-daede` | eBPF 代理实验版 | 在 `core` 基础上替换为 `kenzok8/openwrt-daede` 最新日期 tag 集成快照，包含 `dae`、`daed` 和 `luci-app-daede`；默认选择 `daed` backend |
+项目只构建和发布 `core` 固件，面向日常有线主路由使用，包含 NSS/ECM、cpufreq、HomeProxy、sing-box、ZeroTier、IPv6、UPnP、Samba、DiskMan、挂载、USB 存储和 CoreMark。
 
-`core-daede.config` 是在 `core.config` 上叠加的实验配置；`luci-app-daede` 默认选择 `daed` backend，同时显式安装 `dae`，因为上游 daede 页面仍会调用 `/usr/bin/dae` 做 DSL 校验和版本检测；不再保留旧 `luci-app-dae` / `luci-app-daed` 入口和本项目自写的 DAE 控制、编辑、日志补丁。上游 daede 的 LuCI 辅助脚本会直接调用 `curl`、`uclient-fetch` 和 `ucode`，本项目在该变体中显式保留并体检这些工具，同时核对 BusyBox 默认提供 `flock`。构建脚本会把 daede 深色样式限定在页面内，避免进入 daede 后改写全局 LuCI 深浅色状态，并让关键按钮、圆角和焦点色跟随 Aurora 主题变量。
+上游 LiBwrt `25.12-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。实机 QWRT/iStoreOS 分区布局使用 eMMC GPT，board id 为 `jdcloud,ax1800-pro`，HLOS/HLOS_1 为 12 MiB；构建脚本会在编译阶段把上游 recipe 的 kernel slot 从 6 MiB 调整到 12 MiB，并加入该兼容 ID。
 
-`core-daede` 会把 daed 管理端限制在 `127.0.0.1:2023`；LuCI GraphQL relay 要求有效 LuCI 会话、JSON 请求和不超过 1 MiB 的完整请求体。固件内包自更新已禁用，版本升级统一通过重新构建固件完成。
-
-上游 LiBwrt `main-nss` 中该设备定义为 `JDCloud RE-SS-01`，配置符号为 `CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01`，对应本项目的 JDC AX1800 Pro / 亚瑟。实机 QWRT/iStoreOS 分区布局使用 eMMC GPT，board id 为 `jdcloud,ax1800-pro`，HLOS/HLOS_1 为 12 MiB；构建脚本会在编译阶段把上游 recipe 的 kernel slot 从 6 MiB 调整到 12 MiB，并加入该兼容 ID。
-
-有线构建同时禁用 Wi-Fi、WCSS remoteproc 和 Q6 相关 reserved-memory 节点。Linux 基线中的 `q6_region` 长度为 `0x05500000`，但该设备使用的 512 MiB DTS 将其覆盖为 `0x03700000`，实际 carveout 是 55 MiB；另有 1 MiB 的 Q6 ETR 与 1 MiB 的 M3 dump 区域。这 57 MiB 不再因已移除的无线功能占用；NSS 自身独立的 16 MiB `nss_region` 继续保留。
-
-CPU governor 由持久 init 服务在 cpufreq 初始化后设置为 `performance`。dnsmasq 恢复使用系统上游解析器，健康检查按 HomeProxy/dae/daed 的 UCI 启用状态工作；固定 conntrack 表大小和已知默认 root 密码均已移除。
+固件禁用 Wi-Fi、WCSS remoteproc 和 Q6 相关 reserved-memory 节点。Linux 基线中的 `q6_region` 长度为 `0x05500000`，但该设备使用的 512 MiB DTS 将其覆盖为 `0x03700000`，实际 carveout 是 55 MiB；另有 1 MiB 的 Q6 ETR 与 1 MiB 的 M3 dump 区域。这 57 MiB 不再因已移除的无线功能占用；NSS 自身独立的 16 MiB `nss_region` 继续保留。
 
 出于攻击面和日常需求权衡，`core` 基底不再内置 QuickFile-Go 或其它 LuCI 文件管理器；需要文件操作时建议通过 SSH/SFTP 完成。
 
-## 版本策略与核验快照
+## 版本策略与核验快照（历史记录）
 
 构建不会绕过 LiBwrt feed 强行替换其中每个软件包。OpenWrt 内核、工具链和普通软件包由所选 LiBwrt 源码的 `feeds.conf.default` 统一解析，以保持 ABI 和补丁兼容；`make download` 仍会校验各 recipe 的源码哈希。以下组件由本项目额外解析或固定。
 
-| 组件 | 选择策略 | 2026-07-12 核验结果 |
+| 组件 | 选择策略 | 2026-07-12 历史核验结果 |
 |:---|:---|:---|
-| LiBwrt | 项目基线为滚动的 `main-nss`；正式触发时使用完整 SHA 锁定 | `fff6bde9652cd23133b5dfe0db2a4e6ca3eeb49f` |
-| LiBwrt feed 软件包 | 更新并安装锁定源码所声明的全部 feeds；版本以最终 `.config`、manifest 和 buildinfo 为准 | 当前 `main-nss` feed 快照 |
+| LiBwrt | 项目基线为滚动的 `25.12-nss`；正式触发时使用完整 SHA 锁定 | `fff6bde9652cd23133b5dfe0db2a4e6ca3eeb49f`（历史快照；2026-10-10 上游 HEAD `3a3d0b08595530070ad9cd8a20c0ae4ea3e77f70`） |
+| LiBwrt feed 软件包 | 更新并安装锁定源码所声明的全部 feeds；版本以最终 `.config`、manifest 和 buildinfo 为准 | 当前 `25.12-nss` feed 快照 |
 | NSS firmware | 从 `nss_packages` feed 选择数值最高的可用版本 | `12.5`（Release 210；构建时再次解析并写入 manifest） |
 | sing-box | 只接受严格 `vMAJOR.MINOR.PATCH`，排除 alpha/beta/rc | `v1.13.14` (`25a600db...`) |
 | Aurora | 只接受严格稳定 semver tag | `v1.1.0` (`7cb99b5f...`) |
-| openwrt-daede | 选择最新日期格式 tag，并在发布前核对对应 Release 非 draft/prerelease | `v2026.07.09` (`5ee9475c...`)，本次核验为稳定 Release |
-| dae / daed / luci-app-daede | 跟随上述稳定集成 tag 的 Makefile 与源码哈希 | `2026.07.05-r1` / `2026.07.05-r2` / `1.14.7-r12` |
 | HomeProxy | 优先稳定 semver tag；上游当前没有任何 tag 或 Release，因此跟随默认分支并记录完整 commit | `master` (`7826c263...`) |
 | 构建环境脚本 | 下载后先核对固定 SHA256，再以 root 执行 | `85f4b2c2...6185dd8` |
 | GitHub Actions | 使用各项目最新稳定 Release 对应的完整 commit SHA | checkout `v7.0.0`、cache `v6.1.0`、upload `v7.0.1`、download `v8.0.1`、maximize-build-space `v10`、release-action `v1.21.0` |
 
-“最新稳定版”只适用于上游实际发布稳定 tag/Release 的组件。`main-nss` 和 HomeProxy 默认分支都是可移动引用，不能描述为稳定发布；每次 Release 的 `BUILD-MANIFEST-*.txt` 和 `build-info-*.tar.gz` 会记录本次解析到的完整 commit、版本和哈希，供复现与审计。
+“最新稳定版”只适用于上游实际发布稳定 tag/Release 的组件。`25.12-nss` 和 HomeProxy 默认分支都是可移动引用，不能描述为稳定发布；每次 Release 的 `BUILD-MANIFEST-*.txt` 和 `build-info-*.tar.gz` 会记录本次解析到的完整 commit、版本和哈希，供复现与审计。
 
 ## 使用 GitHub Actions 编译
 
 1. Fork 本仓库。
 2. 进入 **Actions**，启用 workflow。
 3. 打开 **Build JDC AX1800 Pro LiBwrt**。
-4. 点击 **Run workflow**，workflow 会同时构建 `core` 和 `core-daede`，两者全部成功后才发布同一个日期 Release。
+4. 在 `main` 分支手动点击 **Run workflow**；测试 PR 自动编译但不发布 Release。
 5. 可选：在 `repo_commit` 填入 LiBwrt 上游完整的 40 位 commit SHA，用于固定源码版本。
 6. 编译完成后从 workflow artifact 或 Releases 下载固件。
 
@@ -73,45 +61,29 @@ Actions 会在编译前校验目标设备和关键软件包，避免配置叠加
 
 ## 本地编译
 
+需要将本项目与上游源码克隆到同一目录下，再从 `openwrt` 目录执行。
+
 ```bash
-git clone --depth 1 -b main-nss https://github.com/LiBwrt/openwrt-6.x.git openwrt
+git clone https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder.git builder
+git clone --depth 1 -b 25.12-nss https://github.com/LiBwrt/LibWrt.git openwrt
 cd openwrt
 
-# 二选一：core 或 core-daede
-VARIANT=core
-# VARIANT=core-daede
-
-case "$VARIANT" in
-  core)
-    cp ../configs/core.config .config
-    ;;
-  core-daede)
-    cat ../configs/core.config ../configs/core-daede.config > .config
-    ;;
-esac
+cp ../builder/configs/core.config .config
 
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
 mkdir -p files
-cp -a ../files/. files/
+cp -a ../builder/files/. files/
 
-case "$VARIANT" in
-  core)
-    cp -a ../files-homeproxy/. files/
-    ;;
-  core-daede)
-    cp -a ../files-daede/. files/
-    ;;
-esac
+cp -a ../builder/files-homeproxy/. files/
 
-OPENWRT_PATH="$PWD" bash ../scripts/diy.sh "$VARIANT"
+OPENWRT_PATH="$PWD" bash ../builder/scripts/diy.sh core
 make defconfig
 make download -j"$(nproc)"
 make -j"$(nproc)"
 ```
 
-两个变体的代理配置和 overlay 互斥：`core` 使用 HomeProxy，`core-daede` 使用 daede，不要同时复制。
 
 ## 默认配置
 
@@ -205,23 +177,19 @@ net.ipv4.tcp_congestion_control=bbr
 - dnsmasq 进程状态
 - 系统解析路径
 - HomeProxy/sing-box 状态
-- daed/dae 状态
 - 可用内存
 
-`core` 和 `core-daede` 变体会通过 cron 定期运行健康检查。脚本只做服务级恢复和日志记录，不会自动重启整机；DNS 查询失败只记录日志，不会因为上游解析瞬断而直接重启 dnsmasq。
 
 ## 项目结构
 
 ```text
 .
 ├── .github/workflows/
-│   └── build.yml          # 编译与原子发布两个变体
+│   └── build.yml          # 仅编译 core；main 分支手动发布
 ├── configs/
-│   ├── core.config        # 基础配置
-│   └── core-daede.config  # dae/daed eBPF 实验配置
-├── files/                 # 所有变体共用 overlay
+│   └── core.config        # 唯一固件配置
+├── files/                 # 通用系统配置 overlay
 ├── files-homeproxy/       # HomeProxy/sing-box 默认项
-├── files-daede/           # daede 默认项
 ├── scripts/
 │   ├── diy.sh             # 编译前自定义
 │   ├── update-feeds.sh    # feeds 更新
@@ -234,19 +202,15 @@ net.ipv4.tcp_congestion_control=bbr
 
 ## 自定义建议
 
-- 修改包选择时优先编辑 `configs/*.config`，不要直接改 Actions 里的包列表。
-- 增加运行时文件时优先放到对应 overlay：通用放 `files/`，HomeProxy 放 `files-homeproxy/`，daede 放 `files-daede/`。
-- Aurora、HomeProxy、sing-box、openwrt-daede 和 NSS firmware 版本由 `scripts/diy.sh` 在构建时联网解析；HomeProxy 无稳定 tag 时跟随仓库默认分支。构建摘要会记录实际 tag、commit、sing-box 源码 SHA256 和 Go 版本约束。
-- 更新 `core-daede` 时，同步核对 `dae` / `daed` / `luci-app-daede` 的 `PKG_VERSION` / `PKG_HASH` / backend 依赖，以及 `luci-app-daede` 辅助脚本使用的 `curl` / `uclient-fetch` / `ucode` / BusyBox applet，并优先在 `core-daede` 变体验证。
+- 修改包选择时优先编辑 `configs/core.config`，不要直接改 Actions 里的包列表。
 - 更新第三方 GitHub Actions 时，建议继续固定到具体 commit SHA。
 
 ## 致谢
 
-- [LiBwrt/openwrt-6.x](https://github.com/LiBwrt/openwrt-6.x)
+- [LiBwrt/LibWrt](https://github.com/LiBwrt/LibWrt)
 - [osGex0o0II/ZN-M2-LiBwrt-Builder](https://github.com/osGex0o0II/ZN-M2-LiBwrt-Builder)
 - [immortalwrt/homeproxy](https://github.com/immortalwrt/homeproxy)
 - [eamonxg/luci-theme-aurora](https://github.com/eamonxg/luci-theme-aurora)
-- [kenzok8/openwrt-daede](https://github.com/kenzok8/openwrt-daede)
 
 ## 许可证
 

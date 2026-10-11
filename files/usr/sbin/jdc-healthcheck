@@ -97,29 +97,12 @@ check_proxy() {
   fi
 }
 
-check_daede() {
-  if [ -x /etc/init.d/daed ] && [ "$(uci -q get daed.config.enabled || echo 0)" = "1" ]; then
-    if ! pidof daed >/dev/null 2>&1; then
-      log "daed is enabled but not running"
-      restart_service daed
-    fi
-  fi
-
-  if [ -x /etc/init.d/dae ] && [ "$(uci -q get dae.config.enabled || echo 0)" = "1" ]; then
-    if ! pidof dae >/dev/null 2>&1; then
-      log "dae is enabled but not running"
-      restart_service dae
-    fi
-  fi
-}
-
 check_memory
 
 if has_default_route; then
   check_dnsmasq
   check_dns
   check_proxy
-  check_daede
 else
   log "no default route"
 fi
