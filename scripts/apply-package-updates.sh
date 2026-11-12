@@ -28,11 +28,12 @@ replace_recipe() {
 checkout_recipes "$tmp/packages" https://github.com/immortalwrt/packages.git \
   "$PACKAGE_UPDATES_COMMIT" net/openssh net/miniupnpd
 checkout_recipes "$tmp/system" https://github.com/immortalwrt/immortalwrt.git \
-  "$SYSTEM_UPDATES_COMMIT" package/network/services/dropbear package/network/utils/nftables
+  "$SYSTEM_UPDATES_COMMIT" package/network/services/dropbear package/network/utils/nftables package/libs/libnftnl
 
 replace_recipe "$tmp/packages/net/openssh" feeds/packages/net/openssh 10.6_p2
 replace_recipe "$tmp/packages/net/miniupnpd" feeds/packages/net/miniupnpd 2.3.11
 replace_recipe "$tmp/system/package/network/services/dropbear" package/network/services/dropbear 2026.94
+replace_recipe "$tmp/system/package/libs/libnftnl" package/libs/libnftnl 1.3.2
 replace_recipe "$tmp/system/package/network/utils/nftables" package/network/utils/nftables 1.1.7
 
 # Same-series updates retain the 25.12 feed's build and packaging patches.

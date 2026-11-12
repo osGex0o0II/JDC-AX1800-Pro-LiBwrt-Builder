@@ -191,7 +191,8 @@ jobs:
           restore-keys: openwrt-dl-jdc-ax1800-pro-${{ matrix.variant }}-
 
       - name: Cache ccache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        id: restore_ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ${{ steps.clone_source.outputs.OPENWRT_PATH }}/.ccache
           key: openwrt-ccache-${{ matrix.variant }}-${{ steps.detect_target.outputs.DEVICE_TARGET }}-${{ steps.detect_target.outputs.DEVICE_SUBTARGET }}-${{ steps.clone_source.outputs.SOURCE_COMMIT }}-${{ hashFiles('configs/**', 'deps/**', 'scripts/**', 'files/**', 'files-homeproxy/**', 'package/**') }}
@@ -399,6 +400,14 @@ jobs:
           echo "status=success" >> "$GITHUB_OUTPUT"
           echo "FILE_DATE=${FILE_DATE}" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
           echo "DATE=$(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$GITHUB_ENV" "$GITHUB_OUTPUT"
+
+      - name: Save compiled objects for retry
+        if: ${{ !cancelled() && (steps.compile.outcome == 'success' || steps.compile.outcome == 'failure') && steps.restore_ccache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        continue-on-error: true
+        with:
+          path: ${{ steps.clone_source.outputs.OPENWRT_PATH }}/.ccache
+          key: ${{ steps.restore_ccache.outputs.cache-primary-key }}
 
       - name: Organize firmware
         id: organize

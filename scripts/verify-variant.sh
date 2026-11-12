@@ -54,6 +54,7 @@ if [[ $mode == manifest ]]; then
   expect_version dropbear 2026.94-r3
   expect_version openssh-sftp-server 10.6_p2-r1
   expect_version miniupnpd-nftables 2.3.11-r1
+  expect_version libnftnl11 1.3.2-r1
   expect_version nftables-json 1.1.7-r1
   if [[ $variant == core ]]; then
     expect_version luci-app-homeproxy 20261026-r3

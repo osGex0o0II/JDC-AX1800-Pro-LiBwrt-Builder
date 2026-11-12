@@ -37,6 +37,7 @@ luci-app-diskman - test
 dropbear - 2026.94-r3
 openssh-sftp-server - 10.6_p2-r1
 miniupnpd-nftables - 2.3.11-r1
+libnftnl11 - 1.3.2-r1
 nftables-json - 1.1.7-r1
 EOF
 cp "$tmp/shared-manifest" "$tmp/core-manifest"
