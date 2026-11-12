@@ -1,0 +1,4 @@
+#!/bin/sh
+/etc/init.d/honk enabled && echo enabled
+/etc/init.d/honk running && echo running
+exit 0

@@ -1,6 +1,6 @@
 # Build guide
 
-构建目标：`qualcommax/ipq60xx` · `jdcloud_re-ss-01` · **core**。
+构建目标：`qualcommax/ipq60xx` · `jdcloud_re-ss-01` · `core` / `core-honk`。
 
 返回 [README](../README.md) · [Firmware](firmware.md) · [Upgrade](upgrade.md)
 
@@ -11,10 +11,10 @@
 1. Fork 仓库并在 **Actions** 中启用工作流。
 2. 打开 [Build JDC AX1800 Pro LiBwrt](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/actions/workflows/build.yml)；在自己的 Fork 中执行。
 3. 选择 `main` → **Run workflow**。
-4. 根据需要填写 `repo_commit`，留空表示使用构建当时 `25.12-nss` 的最新提交。填写时必须是 **40 位十六进制 SHA**。
-5. 检查所有构建步骤。成功后在运行页面下载名为 `firmware-core` 的 Artifact。
+4. 选择 `core`、`core-honk` 或 `all`。`repo_commit` 留空使用已核验的 LiBwrt 提交；若覆盖，须填写 **40 位十六进制 SHA**。
+5. 成功后在运行页面下载 `firmware-core` 或 `firmware-core-honk`。
 
-工作流也会在面向 `main` 的 Pull Request 中自动测试并构建，但**不会将 PR 构建发布为 Release**。只有在 `main` 上手动触发且构建成功时，`Publish firmware release` 任务才会执行。
+面向 `main` 的 Pull Request 和合并后的构建只生成 Actions 产物。发布时在 `main` 上手动运行，并勾选 `publish`。两个变体使用独立 Release；`core-honk` 标为预发布。Release 只附该变体的 sysupgrade 镜像，SHA256 写在中文发布说明中。
 
 > [!NOTE]
 > GitHub Actions 属于持续构建服务。构建环境容量、上游源码、feeds 或网络连接变化都可能导致新的失败；某次绿色状态不能替代实机验证。
@@ -27,20 +27,26 @@
 
 ```bash
 git clone https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder.git builder
-git clone --depth 1 --branch 25.12-nss https://github.com/LiBwrt/LibWrt.git openwrt
+. builder/deps/firmware.env
+git init openwrt
+git -C openwrt remote add origin https://github.com/LiBwrt/LibWrt.git
+git -C openwrt fetch --depth 1 origin "$OPENWRT_COMMIT"
+git -C openwrt checkout --detach FETCH_HEAD
 
 cd openwrt
-./scripts/feeds update -a
-./scripts/feeds install -a
+export OPENWRT_PATH="$PWD"
+variant=core  # 或 core-honk
+bash ../builder/scripts/update-feeds.sh
 
 mkdir -p files
 cp -a ../builder/files/. files/
-cp -a ../builder/files-homeproxy/. files/
-cp ../builder/configs/core.config .config
+if [ "$variant" = core ]; then cp -a ../builder/files-homeproxy/. files/; fi
+bash ../builder/scripts/configure-variant.sh "$variant" > .config
 
-OPENWRT_PATH="$PWD" bash ../builder/scripts/diy.sh core
+bash ../builder/scripts/diy.sh "$variant"
 
 make defconfig
+bash ../builder/scripts/verify-variant.sh "$variant" config .config
 make download -j"$(nproc)"
 make -j"$(nproc)"
 ```
@@ -48,13 +54,13 @@ make -j"$(nproc)"
 重要说明：
 
 - `diy.sh` 会修改当前工作目录下的上游源码、设备 recipe、内核配置和部分 feeds 文件；应在独立、可丢弃的源码副本中运行。
-- `core.config` 是配置请求，不是最终结果。`make defconfig` 会解析上游依赖；实际配置应以生成的 `.config` 为准。
-- 默认选用上游最新稳定 sing-box/Aurora 标签；HomeProxy 若无稳定标签，则选用仓库默认分支。离线构建或上游不可用时，可能失败。
+- `core.config` 与 `core-honk.config` 是配置请求。实际启用的组件应以 `make defconfig` 结果和镜像包清单为准。
+- `core-honk` 构建需要支持 BTF 的宿主工具；先安装 `dwarves`（提供 `pahole`）及 Linux 编译依赖。
 - 本地构建不等于通过 GitHub Actions 的全套断言；如需一致验证，应参照 [Development](development.md) 中的测试及工作流检查。
 
 ## Build outputs
 
-GitHub Actions 的 `firmware-core` Artifact 包含：
+GitHub Actions 为每个变体上传镜像、校验和、构建清单和包清单，保留 7 天。以 `core` 为例：
 
 | 文件 | 用途 |
 | --- | --- |
@@ -67,15 +73,15 @@ GitHub Actions 的 `firmware-core` Artifact 包含：
 
 ## Versions and reproducibility
 
-源码入口为 [`LiBwrt/LibWrt`](https://github.com/LiBwrt/LibWrt)，默认分支 `25.12-nss`。普通软件包和工具链由当前上游 `feeds.conf.default` 决定；NSS firmware 从当前 NSS feed 选择可用最高版本。sing-box 与 Aurora 的严格稳定版本标签由构建脚本动态解析；HomeProxy 优先稳定标签，否则使用默认分支。
+源码入口为 [`LiBwrt/LibWrt`](https://github.com/LiBwrt/LibWrt) 的 `25.12-nss`。默认使用 [`deps/firmware.env`](../deps/firmware.env) 和 [`deps/feeds.conf`](../deps/feeds.conf) 中固定的提交。NSS firmware 选用该 NSS feed 的最高可用版本。初始化脚本和 Honk 官方 ARM64 压缩包均校验 SHA256。
 
-因此，**不要把 README 中的版本描述当作某次构建的固定版本**。查询该次 Artifact/Release 中的：
+`core` 使用 ZN-M2 同一 VIKINGYFY feed 快照的 HomeProxy `20261026-r3` 与 sing-box `1.15.0-alpha.13`（配套预发布版本）；两个变体共用 Aurora `1.4.0`、集客 AC `2.2.20251015` 与配套 LuCI。定向更新了 Samba `4.22.11`、Go `1.26.11`、Dropbear `2026.94`、OpenSSH SFTP `10.6p2`、miniupnpd `2.3.11`、nftables `1.1.7`。实际安装版本见该次 Actions Artifact 中的：
 
 - `BUILD-MANIFEST-core.txt`：LiBwrt、HomeProxy、Aurora、sing-box 等完整版本和提交。
 - `build-info-*.tar.gz`：构建时的 `config.buildinfo`、`feeds.buildinfo`、`profiles.json` 和包清单（文件以实际存在为准）。
 - `sha256sums-core`：sysupgrade 镜像的校验和。
 
-填写 `repo_commit` 可以锁定 LiBwrt 核心源码，但**不能单独锁定所有可移动的 feeds 与第三方标签**。需要严格复现时，应保存构建清单、feeds 的提交状态、源码归档和全部依赖版本。
+`repo_commit` 只覆盖 LiBwrt 核心源码；其余锁保持不变，较老或不同底座可能和锁定 feeds、配方不兼容。需要复现时还应保存宿主环境信息和源码归档。
 
 ## Troubleshooting
 

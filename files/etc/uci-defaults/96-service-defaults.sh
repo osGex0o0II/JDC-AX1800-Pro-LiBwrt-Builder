@@ -17,6 +17,10 @@ uci commit dropbear
 [ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd disable 2>/dev/null || true
 [ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd stop 2>/dev/null || true
 
+# Gecoos AC is gated by its packaged UCI flag; its boot hook must stay available.
+[ -x /etc/init.d/honk ] && /etc/init.d/honk disable 2>/dev/null || true
+[ -x /etc/init.d/honk ] && /etc/init.d/honk stop 2>/dev/null || true
+
 [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd enable 2>/dev/null || true
 [ -x /etc/init.d/uhttpd ] && /etc/init.d/uhttpd restart 2>/dev/null || true
 [ -x /etc/init.d/jdc-unmount-backup-rootfs ] && /etc/init.d/jdc-unmount-backup-rootfs enable 2>/dev/null || true

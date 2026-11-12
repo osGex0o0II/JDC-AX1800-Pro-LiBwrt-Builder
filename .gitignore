@@ -10,6 +10,7 @@ feeds/
 logs/
 staging_dir/
 tmp/
+__pycache__/
 .config*
 .config.old
 

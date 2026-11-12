@@ -30,15 +30,15 @@ block info
 
 ## Download and verify
 
-在 [Releases](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/releases) 或 [Actions](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/actions/workflows/build.yml) 下载相同构建的 `*-core-sysupgrade.bin` 及 `sha256sums` / `sha256sums-core`。
+在 [Releases](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/releases) 或 [Actions](https://github.com/osGex0o0II/JDC-AX1800-Pro-LiBwrt-Builder/actions/workflows/build.yml) 选择 `*-core-sysupgrade.bin` 或实验版 `*-core-honk-sysupgrade.bin`。Release 的 SHA256 写在中文发布说明中；Actions 产物含同名变体的校验文件与构建清单。
 
-将校验和与镜像放在同一个目录，在电脑上执行：
+从 Actions 下载时，将校验和与镜像放在同一个目录，在电脑上执行（以 `core` 为例）：
 
 ```sh
 sha256sum -c sha256sums-core
 ```
 
-若使用 Release，其校验文件可能命名为 `sha256sums`，应按实际文件名执行。**校验和不匹配必须停止**。同时检查 `BUILD-MANIFEST-core.txt` 内的上游提交、设备目标和组件版本。
+从 Release 下载时，运行 `sha256sum <镜像文件>` 或 Windows `certutil -hashfile <镜像文件> SHA256`，与发布说明逐字符比对。**校验和不匹配必须停止**。
 
 ## Back up first
 
@@ -57,9 +57,9 @@ sysupgrade -b /tmp/router-config-backup.tar.gz
 仅当当前系统支持且镜像通过兼容性检查时：
 
 1. 登录当前 LuCI，打开 **系统 → 备份/升级**。
-2. 选择对应构建的 `*-core-sysupgrade.bin`。
+2. 选择对应变体的 `*-sysupgrade.bin`。
 3. 查看设备兼容性检查结果；若提示不兼容，立即停止。
-4. 跨固件或大版本升级时，**不要保留旧配置**，避免导入不兼容配置。
+4. 切换 `core` / `core-honk`、跨固件或大版本升级时，**不要保留旧配置**，避免混用透明代理、防火墙和 DNS 设置。
 5. 确认具备恢复手段后再执行刷写，并等待设备完成启动。
 
 ## Upgrade with SSH
