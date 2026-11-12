@@ -132,6 +132,11 @@ jobs:
           remove-codeql: true
           remove-docker-images: true
 
+      - name: Checkout on build volume
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Clone source
         id: clone_source
         run: |
